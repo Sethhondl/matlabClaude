@@ -467,50 +467,44 @@ classdef ClaudeProcessManager < handle
         function claudePath = findClaudeCLI(~)
             %FINDCLAUDECLI Search for Claude CLI in common locations
 
-            % Common installation paths to check
-            homeDir = getenv('HOME');
-            possiblePaths = {};
-
-            % NVM-based Node.js installations (common for npm global packages)
-            possiblePaths{end+1} = fullfile(homeDir, '.nvm', 'versions', 'node', '*', 'bin', 'claude');
-            % Standard npm global installations
-            possiblePaths{end+1} = '/usr/local/bin/claude';
-            possiblePaths{end+1} = '/usr/bin/claude';
-            possiblePaths{end+1} = '/opt/homebrew/bin/claude';
-            possiblePaths{end+1} = fullfile(homeDir, '.local', 'bin', 'claude');
-            possiblePaths{end+1} = fullfile(homeDir, 'bin', 'claude');
-            % npm prefix locations
-            possiblePaths{end+1} = fullfile(homeDir, '.npm-global', 'bin', 'claude');
-            % Yarn global
-            possiblePaths{end+1} = fullfile(homeDir, '.yarn', 'bin', 'claude');
-
             claudePath = '';
+            homeDir = getenv('HOME');
 
-            % Check each possible path
-            for i = 1:length(possiblePaths)
-                pathPattern = possiblePaths{i};
-
-                if contains(pathPattern, '*')
-                    % Handle glob pattern (for NVM)
-                    matches = dir(pathPattern);
-                    for j = 1:length(matches)
-                        if matches(j).isdir == false
-                            candidatePath = fullfile(matches(j).folder, matches(j).name);
-                            if isfile(candidatePath)
-                                claudePath = candidatePath;
-                                return;
-                            end
+            % First, try to find via NVM (most common for Node.js global packages)
+            nvmDir = fullfile(homeDir, '.nvm', 'versions', 'node');
+            if exist(nvmDir, 'dir')
+                % List all node version directories
+                nodeVersions = dir(nvmDir);
+                for i = 1:length(nodeVersions)
+                    if nodeVersions(i).isdir && ~startsWith(nodeVersions(i).name, '.')
+                        candidatePath = fullfile(nvmDir, nodeVersions(i).name, 'bin', 'claude');
+                        if exist(candidatePath, 'file')
+                            claudePath = candidatePath;
+                            return;
                         end
-                    end
-                else
-                    if isfile(pathPattern)
-                        claudePath = pathPattern;
-                        return;
                     end
                 end
             end
 
-            % Last resort: try 'which claude' via system
+            % Standard installation paths
+            standardPaths = {
+                '/usr/local/bin/claude'
+                '/usr/bin/claude'
+                '/opt/homebrew/bin/claude'
+                fullfile(homeDir, '.local', 'bin', 'claude')
+                fullfile(homeDir, 'bin', 'claude')
+                fullfile(homeDir, '.npm-global', 'bin', 'claude')
+                fullfile(homeDir, '.yarn', 'bin', 'claude')
+            };
+
+            for i = 1:length(standardPaths)
+                if exist(standardPaths{i}, 'file')
+                    claudePath = standardPaths{i};
+                    return;
+                end
+            end
+
+            % Last resort: try 'which claude' via system (works if shell has it in PATH)
             try
                 [status, result] = system('which claude 2>/dev/null');
                 if status == 0
