@@ -1,0 +1,122 @@
+{
+    "_schemaVersion": 1,
+    "claudecode.launch": {
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "app",
+                "type": "claudecode.ClaudeCodeApp"
+            }
+        ],
+        "description": "Launch Claude Code assistant panel"
+    },
+    "claudecode.ClaudeCodeApp": {
+        "inputs": [],
+        "description": "Create Claude Code application instance"
+    },
+    "claudecode.ClaudeCodeApp.launch": {
+        "inputs": [],
+        "description": "Open the Claude Code window"
+    },
+    "claudecode.ClaudeCodeApp.close": {
+        "inputs": [],
+        "description": "Close the Claude Code window"
+    },
+    "claudecode.ClaudeProcessManager.sendMessage": {
+        "inputs": [
+            {
+                "name": "prompt",
+                "kind": "required",
+                "type": ["char", "string"]
+            },
+            {
+                "name": "allowedTools",
+                "kind": "namevalue",
+                "type": "cell"
+            },
+            {
+                "name": "timeout",
+                "kind": "namevalue",
+                "type": "numeric"
+            },
+            {
+                "name": "context",
+                "kind": "namevalue",
+                "type": ["char", "string"]
+            }
+        ],
+        "description": "Send a message to Claude and get response"
+    },
+    "claudecode.CodeExecutor.execute": {
+        "inputs": [
+            {
+                "name": "code",
+                "kind": "required",
+                "type": ["char", "string"]
+            }
+        ],
+        "outputs": [
+            {
+                "name": "result",
+                "type": ["char", "string"]
+            },
+            {
+                "name": "isError",
+                "type": "logical"
+            }
+        ],
+        "description": "Execute MATLAB code safely"
+    },
+    "claudecode.SimulinkBridge.setCurrentModel": {
+        "inputs": [
+            {
+                "name": "modelName",
+                "kind": "required",
+                "type": ["char", "string"]
+            }
+        ],
+        "outputs": [
+            {
+                "name": "success",
+                "type": "logical"
+            }
+        ],
+        "description": "Set the current Simulink model"
+    },
+    "claudecode.SimulinkBridge.addBlockFromLibrary": {
+        "inputs": [
+            {
+                "name": "libraryPath",
+                "kind": "required",
+                "type": ["char", "string"]
+            },
+            {
+                "name": "destName",
+                "kind": "required",
+                "type": ["char", "string"]
+            },
+            {
+                "name": "params",
+                "kind": "optional",
+                "type": "struct"
+            }
+        ],
+        "outputs": [
+            {
+                "name": "success",
+                "type": "logical"
+            }
+        ],
+        "description": "Add a block from Simulink library"
+    },
+    "claudecode.config.Settings.load": {
+        "inputs": [],
+        "outputs": [
+            {
+                "name": "settings",
+                "type": "claudecode.config.Settings"
+            }
+        ],
+        "description": "Load Claude Code settings"
+    }
+}

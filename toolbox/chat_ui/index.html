@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude Code Chat</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/code-blocks.css">
+</head>
+<body>
+    <div id="app">
+        <div id="header">
+            <h1>Claude Code</h1>
+            <div id="status-indicator">
+                <span id="status-dot"></span>
+                <span id="status-text">Ready</span>
+            </div>
+        </div>
+
+        <div id="message-history"></div>
+
+        <div id="input-area">
+            <div id="context-bar">
+                <label>
+                    <input type="checkbox" id="include-workspace">
+                    Include workspace
+                </label>
+                <label>
+                    <input type="checkbox" id="include-simulink">
+                    Include Simulink model
+                </label>
+            </div>
+            <div id="input-container">
+                <textarea
+                    id="user-input"
+                    placeholder="Ask Claude about your MATLAB code..."
+                    rows="3"
+                ></textarea>
+                <button id="send-btn" title="Send message (Ctrl+Enter)">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/main.js"></script>
+    <script src="js/chat.js"></script>
+    <script src="js/code-runner.js"></script>
+</body>
+</html>

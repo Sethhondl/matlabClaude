@@ -1,0 +1,65 @@
+# MATLAB/Simulink files
+*.asv
+*.m~
+*.mex*
+*.mlappinstall
+*.mltbx
+slprj/
+sccprj/
+codegen/
+*.slxc
+*.autosave
+
+# Simulink cache
+*.slxc
+
+# Generated files
+*.p
+*.pyc
+helpsearch*/
+*.log
+
+# Test output
+test-results/
+coverage/
+
+# Build artifacts
+release/
+build/
+*.mltbx
+
+# IDE/Editor
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Claude Code local files
+.claude/
+logs/
+
+# Preferences (user-specific)
+*.prf
+
+# MEX-related
+*.mexmaci64
+*.mexmaca64
+*.mexa64
+*.mexw64
+
+# Temporary files
+*.tmp
+*.temp
+
+# MATLAB autosave
+*.autosave

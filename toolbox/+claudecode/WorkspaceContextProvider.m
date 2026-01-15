@@ -1,0 +1,259 @@
+classdef WorkspaceContextProvider < handle
+    %WORKSPACECONTEXTPROVIDER Extracts MATLAB workspace information for Claude
+    %
+    %   This class gathers information about variables in the MATLAB workspace
+    %   and formats it as context for Claude to understand.
+    %
+    %   Example:
+    %       provider = claudecode.WorkspaceContextProvider();
+    %       context = provider.getWorkspaceContext();
+
+    properties
+        MaxVariableSize = 10000     % Max characters per variable in context
+        MaxVariables = 50           % Max number of variables to include
+        MaxArrayElements = 100      % Max array elements to show
+        IncludeTypes = {'double', 'single', 'char', 'string', 'cell', ...
+                       'struct', 'table', 'categorical', 'logical', ...
+                       'int8', 'int16', 'int32', 'int64', ...
+                       'uint8', 'uint16', 'uint32', 'uint64'}
+    end
+
+    methods
+        function obj = WorkspaceContextProvider()
+            %WORKSPACECONTEXTPROVIDER Constructor
+        end
+
+        function context = getWorkspaceContext(obj)
+            %GETWORKSPACECONTEXT Get formatted workspace context
+
+            % Get all base workspace variables
+            vars = evalin('base', 'whos');
+
+            if isempty(vars)
+                context = '## MATLAB Workspace: (empty)';
+                return;
+            end
+
+            % Sort by size (prioritize smaller, more readable variables)
+            [~, idx] = sort([vars.bytes]);
+            vars = vars(idx);
+
+            % Build context
+            lines = {'## MATLAB Workspace Variables:', ''};
+            count = 0;
+
+            for i = 1:length(vars)
+                if count >= obj.MaxVariables
+                    lines{end+1} = sprintf('... and %d more variables', length(vars) - count);
+                    break;
+                end
+
+                v = vars(i);
+
+                % Skip excluded types
+                if ~ismember(v.class, obj.IncludeTypes)
+                    continue;
+                end
+
+                % Skip very large variables
+                if v.bytes > 1e7  % 10 MB limit
+                    continue;
+                end
+
+                varStr = obj.formatVariable(v);
+                if ~isempty(varStr)
+                    lines{end+1} = varStr;
+                    count = count + 1;
+                end
+            end
+
+            context = strjoin(lines, newline);
+        end
+
+        function summary = getWorkspaceSummary(obj)
+            %GETWORKSPACESUMMARY Get a brief summary of the workspace
+
+            vars = evalin('base', 'whos');
+
+            if isempty(vars)
+                summary = 'Workspace is empty';
+                return;
+            end
+
+            % Count by type
+            types = {vars.class};
+            uniqueTypes = unique(types);
+            typeCounts = cellfun(@(t) sum(strcmp(types, t)), uniqueTypes);
+
+            % Build summary
+            parts = cell(length(uniqueTypes), 1);
+            for i = 1:length(uniqueTypes)
+                parts{i} = sprintf('%d %s', typeCounts(i), uniqueTypes{i});
+            end
+
+            totalSize = sum([vars.bytes]);
+            sizeStr = obj.formatBytes(totalSize);
+
+            summary = sprintf('%d variables (%s total): %s', ...
+                length(vars), sizeStr, strjoin(parts, ', '));
+        end
+    end
+
+    methods (Access = private)
+        function str = formatVariable(obj, varInfo)
+            %FORMATVARIABLE Format a single variable for display
+
+            name = varInfo.name;
+
+            try
+                value = evalin('base', name);
+
+                % Format based on type
+                switch varInfo.class
+                    case {'double', 'single', 'int8', 'int16', 'int32', 'int64', ...
+                          'uint8', 'uint16', 'uint32', 'uint64', 'logical'}
+                        str = obj.formatNumeric(name, varInfo, value);
+
+                    case {'char', 'string'}
+                        str = obj.formatString(name, varInfo, value);
+
+                    case 'struct'
+                        str = obj.formatStruct(name, varInfo, value);
+
+                    case 'cell'
+                        str = obj.formatCell(name, varInfo, value);
+
+                    case 'table'
+                        str = obj.formatTable(name, varInfo, value);
+
+                    case 'categorical'
+                        str = obj.formatCategorical(name, varInfo, value);
+
+                    otherwise
+                        str = sprintf('- `%s`: %s %s', ...
+                            name, mat2str(varInfo.size), varInfo.class);
+                end
+
+                % Truncate if too long
+                if length(str) > obj.MaxVariableSize
+                    str = [str(1:obj.MaxVariableSize), '...'];
+                end
+
+            catch
+                str = '';  % Skip variables that can't be read
+            end
+        end
+
+        function str = formatNumeric(obj, name, varInfo, value)
+            %FORMATNUMERIC Format numeric variable
+
+            sizeStr = mat2str(varInfo.size);
+            typeStr = varInfo.class;
+
+            if isscalar(value)
+                % Scalar - show value
+                str = sprintf('- `%s` (%s): %g', name, typeStr, value);
+
+            elseif isvector(value) && numel(value) <= 10
+                % Small vector - show all values
+                str = sprintf('- `%s` (%s %s): %s', ...
+                    name, sizeStr, typeStr, mat2str(value, 4));
+
+            elseif numel(value) <= obj.MaxArrayElements
+                % Small array - show shape and sample
+                str = sprintf('- `%s` (%s %s): %s', ...
+                    name, sizeStr, typeStr, mat2str(value, 4));
+
+            else
+                % Large array - show summary stats
+                str = sprintf('- `%s` (%s %s): min=%g, max=%g, mean=%g', ...
+                    name, sizeStr, typeStr, min(value(:)), max(value(:)), mean(value(:)));
+            end
+        end
+
+        function str = formatString(~, name, varInfo, value)
+            %FORMATSTRING Format string/char variable
+
+            if ischar(value)
+                preview = value;
+            else
+                preview = char(value);
+            end
+
+            % Flatten multi-line strings
+            preview = strrep(preview, newline, '\n');
+
+            if length(preview) > 100
+                preview = [preview(1:100), '...'];
+            end
+
+            str = sprintf('- `%s` (%s): "%s"', name, varInfo.class, preview);
+        end
+
+        function str = formatStruct(~, name, varInfo, value)
+            %FORMATSTRUCT Format struct variable
+
+            fields = fieldnames(value);
+            numElements = numel(value);
+
+            if numElements == 1
+                fieldList = strjoin(fields, ', ');
+                if length(fieldList) > 80
+                    fieldList = sprintf('%d fields', length(fields));
+                end
+                str = sprintf('- `%s` (struct): {%s}', name, fieldList);
+            else
+                str = sprintf('- `%s` (%s struct array with %d fields)', ...
+                    name, mat2str(varInfo.size), length(fields));
+            end
+        end
+
+        function str = formatCell(~, name, varInfo, ~)
+            %FORMATCELL Format cell variable
+
+            str = sprintf('- `%s` (%s cell array)', name, mat2str(varInfo.size));
+        end
+
+        function str = formatTable(~, name, ~, value)
+            %FORMATTABLE Format table variable
+
+            colNames = value.Properties.VariableNames;
+            colList = strjoin(colNames, ', ');
+
+            if length(colList) > 60
+                colList = sprintf('%d columns', length(colNames));
+            end
+
+            str = sprintf('- `%s` (table %dx%d): [%s]', ...
+                name, height(value), width(value), colList);
+        end
+
+        function str = formatCategorical(~, name, varInfo, value)
+            %FORMATCATEGORICAL Format categorical variable
+
+            cats = categories(value);
+            catList = strjoin(cats, ', ');
+
+            if length(catList) > 50
+                catList = sprintf('%d categories', length(cats));
+            end
+
+            str = sprintf('- `%s` (%s categorical): {%s}', ...
+                name, mat2str(varInfo.size), catList);
+        end
+
+        function str = formatBytes(~, bytes)
+            %FORMATBYTES Format byte size for display
+
+            if bytes < 1024
+                str = sprintf('%d B', bytes);
+            elseif bytes < 1024^2
+                str = sprintf('%.1f KB', bytes/1024);
+            elseif bytes < 1024^3
+                str = sprintf('%.1f MB', bytes/1024^2);
+            else
+                str = sprintf('%.1f GB', bytes/1024^3);
+            end
+        end
+    end
+end
