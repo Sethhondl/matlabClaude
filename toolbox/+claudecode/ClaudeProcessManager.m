@@ -19,8 +19,11 @@ classdef ClaudeProcessManager < handle
     end
 
     properties (Constant)
-        CLAUDE_PATH = 'claude'  % CLI command (assumes in PATH)
         DEFAULT_TIMEOUT = 300000  % 5 minutes in milliseconds
+    end
+
+    properties (Access = private)
+        ClaudePath = ''  % Resolved path to Claude CLI
     end
 
     properties (SetAccess = private)
@@ -38,6 +41,7 @@ classdef ClaudeProcessManager < handle
             %CLAUDEPROCESSMANAGER Constructor
             obj.IsRunning = false;
             obj.SessionId = '';
+            obj.ClaudePath = obj.findClaudeCLI();
         end
 
         function delete(obj)
@@ -47,12 +51,27 @@ classdef ClaudeProcessManager < handle
 
         function available = isClaudeAvailable(obj)
             %ISCLAUDEAVAILABLE Check if Claude CLI is installed and accessible
+            if isempty(obj.ClaudePath)
+                available = false;
+                return;
+            end
+
             try
-                [status, ~] = system([obj.CLAUDE_PATH, ' --version']);
+                [status, ~] = system(['"', obj.ClaudePath, '" --version']);
                 available = (status == 0);
             catch
                 available = false;
             end
+        end
+
+        function path = getClaudePath(obj)
+            %GETCLAUDEPATH Get the resolved path to Claude CLI
+            path = obj.ClaudePath;
+        end
+
+        function setClaudePath(obj, path)
+            %SETCLAUDEPATH Manually set the Claude CLI path
+            obj.ClaudePath = path;
         end
 
         function response = sendMessage(obj, prompt, options)
@@ -177,7 +196,7 @@ classdef ClaudeProcessManager < handle
             % Build command array for Java
             numArgs = length(args) + 1;
             cmdArray = javaArray('java.lang.String', numArgs);
-            cmdArray(1) = java.lang.String(obj.CLAUDE_PATH);
+            cmdArray(1) = java.lang.String(obj.ClaudePath);
             for i = 1:length(args)
                 cmdArray(i+1) = java.lang.String(args{i});
             end
@@ -443,6 +462,66 @@ classdef ClaudeProcessManager < handle
                 accumText = '';
                 completeCallback(response);
             end
+        end
+
+        function claudePath = findClaudeCLI(~)
+            %FINDCLAUDECLI Search for Claude CLI in common locations
+
+            % Common installation paths to check
+            homeDir = getenv('HOME');
+            possiblePaths = {
+                % NVM-based Node.js installations (common for npm global packages)
+                fullfile(homeDir, '.nvm', 'versions', 'node', '*', 'bin', 'claude'), ...
+                % Standard npm global installations
+                '/usr/local/bin/claude', ...
+                '/usr/bin/claude', ...
+                '/opt/homebrew/bin/claude', ...
+                fullfile(homeDir, '.local', 'bin', 'claude'), ...
+                fullfile(homeDir, 'bin', 'claude'), ...
+                % npm prefix locations
+                fullfile(homeDir, '.npm-global', 'bin', 'claude'), ...
+                % Yarn global
+                fullfile(homeDir, '.yarn', 'bin', 'claude')
+            };
+
+            claudePath = '';
+
+            % Check each possible path
+            for i = 1:length(possiblePaths)
+                pathPattern = possiblePaths{i};
+
+                if contains(pathPattern, '*')
+                    % Handle glob pattern (for NVM)
+                    matches = dir(pathPattern);
+                    for j = 1:length(matches)
+                        if matches(j).isdir == false
+                            candidatePath = fullfile(matches(j).folder, matches(j).name);
+                            if isfile(candidatePath)
+                                claudePath = candidatePath;
+                                return;
+                            end
+                        end
+                    end
+                else
+                    if isfile(pathPattern)
+                        claudePath = pathPattern;
+                        return;
+                    end
+                end
+            end
+
+            % Last resort: try 'which claude' via system
+            try
+                [status, result] = system('which claude 2>/dev/null');
+                if status == 0
+                    claudePath = strtrim(result);
+                    return;
+                end
+            catch
+                % Ignore errors
+            end
+
+            % If nothing found, leave empty (will fail gracefully)
         end
     end
 end
