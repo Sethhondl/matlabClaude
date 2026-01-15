@@ -20,30 +20,10 @@ classdef CodeExecutor < handle
 
     properties (Constant, Access = private)
         % Functions that are always blocked
-        BLOCKED_FUNCTIONS = {
-            % System commands
-            'system', 'dos', 'unix', 'perl', 'python', '!', ...
-            % Dangerous eval variants
-            'eval', 'evalin', 'evalc', 'feval', 'builtin', ...
-            % Destructive file operations
-            'delete', 'rmdir', 'movefile', 'copyfile', ...
-            % Java/Python escape hatches
-            'java.lang.Runtime', 'py.os', 'py.subprocess', ...
-            % Network operations
-            'urlread', 'urlwrite', 'webread', 'webwrite', 'websave', ...
-            'ftp', 'sendmail', ...
-            % Other dangerous operations
-            'clear', 'clearvars', 'exit', 'quit', 'restart'
-        }
+        BLOCKED_FUNCTIONS = {'system', 'dos', 'unix', 'perl', 'python', '!', 'eval', 'evalin', 'evalc', 'feval', 'builtin', 'delete', 'rmdir', 'movefile', 'copyfile', 'java.lang.Runtime', 'py.os', 'py.subprocess', 'urlread', 'urlwrite', 'webread', 'webwrite', 'websave', 'ftp', 'sendmail', 'clear', 'clearvars', 'exit', 'quit', 'restart'}
 
         % Patterns that indicate dangerous code
-        BLOCKED_PATTERNS = {
-            '^\s*!',           % Shell escape at line start
-            'java\.lang\.',    % Java access
-            'py\.',            % Python access
-            'NET\.',           % .NET access
-            'COM\.'            % COM access
-        }
+        BLOCKED_PATTERNS = {'^\s*!', 'java\.lang\.', 'py\.', 'NET\.', 'COM\.'}
     end
 
     properties (Access = private)
