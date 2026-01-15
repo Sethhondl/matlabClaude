@@ -1,9 +1,8 @@
 classdef ChatUIController < handle
     %CHATUICONTROLLER Manages the chat UI and bridges JavaScript/MATLAB communication
     %
-    %   This class creates and manages the uihtml component that displays
-    %   the chat interface, handling bidirectional communication between
-    %   the JavaScript UI and MATLAB.
+    %   This class creates and manages the chat interface, handling
+    %   bidirectional communication between the UI and MATLAB.
     %
     %   Example:
     %       controller = claudecode.ChatUIController(parentPanel, processManager);
@@ -14,12 +13,24 @@ classdef ChatUIController < handle
     end
 
     properties (Access = private)
-        HTMLComponent       % uihtml object
-        ParentContainer     % Panel or figure containing the uihtml
+        ParentContainer     % Panel or figure containing the UI
         ProcessManager      % Reference to ClaudeProcessManager
         CodeExecutor        % Reference to CodeExecutor
         WorkspaceProvider   % Reference to WorkspaceContextProvider
         IsReady = false     % Whether UI has initialized
+
+        % UI Components (for figure-based UI)
+        WebWindow           % Internal web window for HTML content
+        MessageHistory      % Listbox or text area for messages
+        InputField          % Edit field for user input
+        SendButton          % Button to send message
+        ContextPanel        % Panel for context options
+        WorkspaceCheckbox   % Checkbox for workspace context
+        SimulinkCheckbox    % Checkbox for Simulink context
+
+        % State
+        Messages = {}       % Cell array of message structs
+        IsStreaming = false % Whether currently streaming
     end
 
     events
@@ -33,7 +44,7 @@ classdef ChatUIController < handle
             %
             %   controller = ChatUIController(parent, processManager)
             %
-            %   parent: uipanel or uifigure to contain the chat UI
+            %   parent: uipanel or figure to contain the chat UI
             %   processManager: ClaudeProcessManager instance
 
             obj.ParentContainer = parent;
@@ -46,148 +57,222 @@ classdef ChatUIController < handle
 
         function delete(obj)
             %DELETE Destructor
-            if ~isempty(obj.HTMLComponent) && isvalid(obj.HTMLComponent)
-                delete(obj.HTMLComponent);
-            end
-        end
-
-        function sendToJS(obj, type, data)
-            %SENDTOJS Send data to JavaScript UI
-            %
-            %   controller.sendToJS('assistantMessage', struct('content', 'Hello'))
-
-            if ~obj.IsReady
-                warning('ChatUIController:NotReady', 'UI not ready yet');
-                return;
-            end
-
-            payload = data;
-            payload.type = type;
-
-            try
-                sendEventToHTMLSource(obj.HTMLComponent, 'matlabEvent', payload);
-            catch ME
-                warning('ChatUIController:SendError', 'Failed to send to JS: %s', ME.message);
-            end
+            % Clean up UI components if needed
         end
 
         function sendAssistantMessage(obj, content)
-            %SENDASSISTANTMESSAGE Send a complete assistant message to the UI
+            %SENDASSISTANTMESSAGE Display a complete assistant message
 
-            obj.sendToJS('assistantMessage', struct('content', content));
+            obj.addMessage('assistant', content);
+            obj.IsStreaming = false;
+            obj.updateSendButton();
         end
 
         function startStreaming(obj)
             %STARTSTREAMING Signal start of streaming response
 
-            obj.sendToJS('streamStart', struct());
+            obj.IsStreaming = true;
+            obj.updateSendButton();
+            obj.addMessage('assistant', '');  % Add empty message to append to
         end
 
         function sendStreamChunk(obj, chunk)
-            %SENDSTREAMCHUNK Send a streaming text chunk
+            %SENDSTREAMCHUNK Append a streaming text chunk
 
-            obj.sendToJS('streamChunk', struct('content', chunk));
+            if ~isempty(obj.Messages)
+                lastIdx = length(obj.Messages);
+                obj.Messages{lastIdx}.content = [obj.Messages{lastIdx}.content, chunk];
+                obj.updateMessageDisplay();
+            end
         end
 
         function endStreaming(obj)
             %ENDSTREAMING Signal end of streaming response
 
-            obj.sendToJS('streamEnd', struct());
+            obj.IsStreaming = false;
+            obj.updateSendButton();
         end
 
         function sendError(obj, message)
-            %SENDERROR Send an error message to the UI
+            %SENDERROR Display an error message
 
-            obj.sendToJS('error', struct('message', message));
+            obj.addMessage('error', message);
+            obj.IsStreaming = false;
+            obj.updateSendButton();
         end
 
         function updateStatus(obj, status, message)
             %UPDATESTATUS Update the status indicator
-
-            obj.sendToJS('status', struct('status', status, 'message', message));
+            % For now, just update the send button text
+            if obj.IsStreaming
+                obj.SendButton.String = 'Thinking...';
+            else
+                obj.SendButton.String = 'Send';
+            end
         end
     end
 
     methods (Access = private)
         function createUI(obj)
-            %CREATEUI Create the uihtml component
+            %CREATEUI Create the UI components
 
-            % Get path to HTML file
-            thisDir = fileparts(mfilename('fullpath'));
-            htmlPath = fullfile(thisDir, '..', 'chat_ui', 'index.html');
+            parent = obj.ParentContainer;
 
-            % Create uihtml component filling the parent container
-            obj.HTMLComponent = uihtml(obj.ParentContainer, ...
-                'HTMLSource', htmlPath, ...
-                'HTMLEventReceivedFcn', @(src, event) obj.handleJSEvent(event));
-
-            % Position to fill parent
-            obj.HTMLComponent.Position = [0 0 obj.ParentContainer.Position(3:4)];
-
-            % Handle parent resize
-            if isprop(obj.ParentContainer, 'SizeChangedFcn')
-                obj.ParentContainer.SizeChangedFcn = @(~,~) obj.handleResize();
+            % Get parent position for sizing
+            if isprop(parent, 'Position')
+                pos = parent.Position;
+                if strcmp(get(parent, 'Units'), 'normalized')
+                    pos = [0 0 1 1];
+                end
+            else
+                pos = [0 0 400 600];
             end
-        end
 
-        function handleResize(obj)
-            %HANDLERESIZE Handle parent container resize
+            % Create main layout panels using normalized units
+            % Header panel (top 5%)
+            obj.createHeader(parent);
 
-            if isvalid(obj.HTMLComponent)
-                obj.HTMLComponent.Position = [0 0 obj.ParentContainer.Position(3:4)];
-            end
-        end
+            % Message history (middle 75%)
+            obj.createMessageArea(parent);
 
-        function handleJSEvent(obj, event)
-            %HANDLEJSEVENT Handle events from JavaScript
+            % Context options (5%)
+            obj.createContextPanel(parent);
 
-            eventName = event.HTMLEventName;
-            eventData = event.HTMLEventData;
-
-            switch eventName
-                case 'uiReady'
-                    obj.onUIReady(eventData);
-
-                case 'userMessage'
-                    obj.onUserMessage(eventData);
-
-                case 'executeCode'
-                    obj.onExecuteCode(eventData);
-
-                case 'insertCode'
-                    obj.onInsertCode(eventData);
-
-                otherwise
-                    warning('ChatUIController:UnknownEvent', ...
-                        'Unknown event from JS: %s', eventName);
-            end
-        end
-
-        function onUIReady(obj, ~)
-            %ONUIREADY Handle UI ready notification
+            % Input area (bottom 15%)
+            obj.createInputArea(parent);
 
             obj.IsReady = true;
-            obj.updateStatus('ready', 'Ready');
         end
 
-        function onUserMessage(obj, data)
-            %ONUSERMESSAGE Handle user message from UI
+        function createHeader(obj, parent)
+            %CREATEHEADER Create the header panel
 
-            prompt = data.content;
+            uicontrol(parent, ...
+                'Style', 'text', ...
+                'String', 'Claude Code', ...
+                'Units', 'normalized', ...
+                'Position', [0.02 0.94 0.96 0.05], ...
+                'FontSize', 14, ...
+                'FontWeight', 'bold', ...
+                'ForegroundColor', [0.8 0.8 0.8], ...
+                'BackgroundColor', [0.15 0.15 0.15], ...
+                'HorizontalAlignment', 'left');
+        end
 
-            % Build context if requested
+        function createMessageArea(obj, parent)
+            %CREATEMESSAGEAREA Create the message display area
+
+            obj.MessageHistory = uicontrol(parent, ...
+                'Style', 'listbox', ...
+                'String', {'Welcome to Claude Code!', '', 'Ask questions about your MATLAB code,',...
+                          'get help with Simulink models,', 'or request code changes.'}, ...
+                'Units', 'normalized', ...
+                'Position', [0.02 0.22 0.96 0.71], ...
+                'FontSize', 11, ...
+                'FontName', 'Consolas', ...
+                'ForegroundColor', [0.8 0.8 0.8], ...
+                'BackgroundColor', [0.12 0.12 0.12], ...
+                'Max', 2, ...  % Enable multi-select for scrolling
+                'HorizontalAlignment', 'left');
+        end
+
+        function createContextPanel(obj, parent)
+            %CREATECONTEXTPANEL Create context options panel
+
+            obj.WorkspaceCheckbox = uicontrol(parent, ...
+                'Style', 'checkbox', ...
+                'String', 'Include workspace', ...
+                'Units', 'normalized', ...
+                'Position', [0.02 0.16 0.35 0.05], ...
+                'FontSize', 10, ...
+                'ForegroundColor', [0.7 0.7 0.7], ...
+                'BackgroundColor', [0.12 0.12 0.12], ...
+                'Value', 0);
+
+            obj.SimulinkCheckbox = uicontrol(parent, ...
+                'Style', 'checkbox', ...
+                'String', 'Include Simulink model', ...
+                'Units', 'normalized', ...
+                'Position', [0.40 0.16 0.40 0.05], ...
+                'FontSize', 10, ...
+                'ForegroundColor', [0.7 0.7 0.7], ...
+                'BackgroundColor', [0.12 0.12 0.12], ...
+                'Value', 0);
+        end
+
+        function createInputArea(obj, parent)
+            %CREATEINPUTAREA Create the input area
+
+            % Input text field
+            obj.InputField = uicontrol(parent, ...
+                'Style', 'edit', ...
+                'String', '', ...
+                'Units', 'normalized', ...
+                'Position', [0.02 0.02 0.78 0.12], ...
+                'FontSize', 11, ...
+                'ForegroundColor', [0.9 0.9 0.9], ...
+                'BackgroundColor', [0.18 0.18 0.18], ...
+                'HorizontalAlignment', 'left', ...
+                'Max', 3, ...  % Multi-line
+                'KeyPressFcn', @(src, evt) obj.onKeyPress(evt));
+
+            % Send button
+            obj.SendButton = uicontrol(parent, ...
+                'Style', 'pushbutton', ...
+                'String', 'Send', ...
+                'Units', 'normalized', ...
+                'Position', [0.82 0.02 0.16 0.12], ...
+                'FontSize', 11, ...
+                'FontWeight', 'bold', ...
+                'ForegroundColor', [1 1 1], ...
+                'BackgroundColor', [0.85 0.47 0.34], ...
+                'Callback', @(~,~) obj.onSendClick());
+        end
+
+        function onKeyPress(obj, evt)
+            %ONKEYPRESS Handle key press in input field
+
+            % Check for Ctrl+Enter or Cmd+Enter
+            if strcmp(evt.Key, 'return') && ...
+               (any(strcmp(evt.Modifier, 'control')) || any(strcmp(evt.Modifier, 'command')))
+                obj.onSendClick();
+            end
+        end
+
+        function onSendClick(obj)
+            %ONSENDCLICK Handle send button click
+
+            if obj.IsStreaming
+                return;
+            end
+
+            message = strtrim(obj.InputField.String);
+            if isempty(message)
+                return;
+            end
+
+            % Handle multi-line input (cell array from edit box)
+            if iscell(message)
+                message = strjoin(message, newline);
+            end
+
+            % Clear input
+            obj.InputField.String = '';
+
+            % Add user message to display
+            obj.addMessage('user', message);
+
+            % Build context
             context = '';
 
-            if isfield(data, 'includeWorkspace') && data.includeWorkspace
+            if obj.WorkspaceCheckbox.Value
                 workspaceContext = obj.WorkspaceProvider.getWorkspaceContext();
                 context = [context, workspaceContext, newline, newline];
             end
 
-            if isfield(data, 'includeSimulink') && data.includeSimulink
-                if ~isempty(obj.SimulinkBridge)
-                    simulinkContext = obj.SimulinkBridge.buildSimulinkContext();
-                    context = [context, simulinkContext, newline, newline];
-                end
+            if obj.SimulinkCheckbox.Value && ~isempty(obj.SimulinkBridge)
+                simulinkContext = obj.SimulinkBridge.buildSimulinkContext();
+                context = [context, simulinkContext, newline, newline];
             end
 
             % Notify via event
@@ -196,7 +281,7 @@ classdef ChatUIController < handle
             % Send to Claude asynchronously
             obj.startStreaming();
 
-            obj.ProcessManager.sendMessageAsync(prompt, ...
+            obj.ProcessManager.sendMessageAsync(message, ...
                 @(chunk) obj.onStreamChunk(chunk), ...
                 @(result) obj.onMessageComplete(result), ...
                 'context', context);
@@ -213,69 +298,70 @@ classdef ChatUIController < handle
 
             obj.endStreaming();
 
-            if ~result.success
+            if ~result.success && ~isempty(result.error)
                 obj.sendError(result.error);
             end
+        end
 
-            % Update session ID
-            if isfield(result, 'sessionId') && ~isempty(result.sessionId)
-                obj.sendToJS('sessionId', struct('sessionId', result.sessionId));
+        function addMessage(obj, role, content)
+            %ADDMESSAGE Add a message to the history
+
+            msg = struct('role', role, 'content', content, 'timestamp', now);
+            obj.Messages{end+1} = msg;
+            obj.updateMessageDisplay();
+        end
+
+        function updateMessageDisplay(obj)
+            %UPDATEMESSAGEDISPLAY Update the message listbox
+
+            lines = {};
+
+            for i = 1:length(obj.Messages)
+                msg = obj.Messages{i};
+
+                % Add role prefix
+                switch msg.role
+                    case 'user'
+                        prefix = '>> YOU: ';
+                    case 'assistant'
+                        prefix = '   CLAUDE: ';
+                    case 'error'
+                        prefix = '!! ERROR: ';
+                    otherwise
+                        prefix = '   ';
+                end
+
+                % Split content into lines and add prefix to first line
+                contentLines = strsplit(msg.content, newline);
+                for j = 1:length(contentLines)
+                    if j == 1
+                        lines{end+1} = [prefix, contentLines{j}];
+                    else
+                        lines{end+1} = ['           ', contentLines{j}];
+                    end
+                end
+
+                % Add blank line between messages
+                lines{end+1} = '';
+            end
+
+            obj.MessageHistory.String = lines;
+
+            % Scroll to bottom
+            if ~isempty(lines)
+                obj.MessageHistory.Value = length(lines);
             end
         end
 
-        function onExecuteCode(obj, data)
-            %ONEXECUTECODE Handle code execution request
+        function updateSendButton(obj)
+            %UPDATESENDBUTTON Update send button state
 
-            blockId = data.blockId;
-            code = data.code;
-
-            % Execute code safely
-            [result, isError] = obj.CodeExecutor.execute(code);
-
-            % Send result back to UI
-            obj.sendToJS('codeResult', struct(...
-                'blockId', blockId, ...
-                'result', result, ...
-                'isError', isError));
-
-            % Notify via event
-            notify(obj, 'CodeExecuted');
-        end
-
-        function onInsertCode(obj, data)
-            %ONINSERTCODE Handle code insertion request
-
-            code = data.code;
-
-            try
-                % Try to insert into current editor
-                % This uses MATLAB's desktop API
-                editorService = com.mathworks.mlservices.MLEditorServices;
-
-                if editorService.hasOpenEditor()
-                    % Insert at cursor position
-                    editor = editorService.getEditorApplication();
-                    activeEditor = editor.getActiveEditor();
-
-                    if ~isempty(activeEditor)
-                        activeEditor.insertTextAtCaret(code);
-                    else
-                        % No active editor, open new document
-                        matlab.desktop.editor.newDocument(code);
-                    end
-                else
-                    % No editor open, create new document
-                    matlab.desktop.editor.newDocument(code);
-                end
-
-            catch ME
-                % Fallback: create new script file
-                try
-                    matlab.desktop.editor.newDocument(code);
-                catch
-                    warning('ChatUIController:InsertError', ...
-                        'Failed to insert code: %s', ME.message);
-                end
+            if obj.IsStreaming
+                obj.SendButton.String = 'Thinking...';
+                obj.SendButton.Enable = 'off';
+            else
+                obj.SendButton.String = 'Send';
+                obj.SendButton.Enable = 'on';
             end
         end
     end
