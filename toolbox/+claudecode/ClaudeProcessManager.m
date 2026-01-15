@@ -24,6 +24,7 @@ classdef ClaudeProcessManager < handle
 
     properties (Access = private)
         ClaudePath = ''  % Resolved path to Claude CLI
+        NodeBinDir = ''  % Directory containing node binary
     end
 
     properties (SetAccess = private)
@@ -41,7 +42,7 @@ classdef ClaudeProcessManager < handle
             %CLAUDEPROCESSMANAGER Constructor
             obj.IsRunning = false;
             obj.SessionId = '';
-            obj.ClaudePath = obj.findClaudeCLI();
+            [obj.ClaudePath, obj.NodeBinDir] = obj.findClaudeCLI();
         end
 
         function delete(obj)
@@ -57,7 +58,9 @@ classdef ClaudeProcessManager < handle
             end
 
             try
-                [status, ~] = system(['"', obj.ClaudePath, '" --version']);
+                % Build command with PATH set to include node
+                cmd = obj.buildShellCommand(['"', obj.ClaudePath, '" --version']);
+                [status, ~] = system(cmd);
                 available = (status == 0);
             catch
                 available = false;
@@ -207,6 +210,17 @@ classdef ClaudeProcessManager < handle
 
             % Set working directory to current MATLAB directory
             pb.directory(java.io.File(pwd));
+
+            % Add node bin directory to PATH so claude can find node
+            if ~isempty(obj.NodeBinDir)
+                env = pb.environment();
+                currentPath = char(env.get('PATH'));
+                if isempty(currentPath)
+                    currentPath = getenv('PATH');
+                end
+                newPath = [obj.NodeBinDir, ':', currentPath];
+                env.put('PATH', newPath);
+            end
 
             % Start the process
             obj.Process = pb.start();
@@ -464,10 +478,23 @@ classdef ClaudeProcessManager < handle
             end
         end
 
-        function claudePath = findClaudeCLI(~)
+        function cmd = buildShellCommand(obj, baseCmd)
+            %BUILDSHELLCOMMAND Build a shell command with PATH set for node
+
+            if ~isempty(obj.NodeBinDir)
+                % Prepend node bin dir to PATH
+                cmd = sprintf('export PATH="%s:$PATH" && %s', obj.NodeBinDir, baseCmd);
+            else
+                cmd = baseCmd;
+            end
+        end
+
+        function [claudePath, nodeBinDir] = findClaudeCLI(~)
             %FINDCLAUDECLI Search for Claude CLI in common locations
+            %   Returns both the claude path and the directory containing node
 
             claudePath = '';
+            nodeBinDir = '';
             homeDir = getenv('HOME');
 
             % First, try to find via NVM (most common for Node.js global packages)
@@ -477,16 +504,18 @@ classdef ClaudeProcessManager < handle
                 nodeVersions = dir(nvmDir);
                 for i = 1:length(nodeVersions)
                     if nodeVersions(i).isdir && ~startsWith(nodeVersions(i).name, '.')
-                        candidatePath = fullfile(nvmDir, nodeVersions(i).name, 'bin', 'claude');
+                        binDir = fullfile(nvmDir, nodeVersions(i).name, 'bin');
+                        candidatePath = fullfile(binDir, 'claude');
                         if exist(candidatePath, 'file')
                             claudePath = candidatePath;
+                            nodeBinDir = binDir;
                             return;
                         end
                     end
                 end
             end
 
-            % Standard installation paths
+            % Standard installation paths (node should be in system PATH for these)
             standardPaths = {
                 '/usr/local/bin/claude'
                 '/usr/bin/claude'
@@ -500,6 +529,7 @@ classdef ClaudeProcessManager < handle
             for i = 1:length(standardPaths)
                 if exist(standardPaths{i}, 'file')
                     claudePath = standardPaths{i};
+                    nodeBinDir = fileparts(standardPaths{i});
                     return;
                 end
             end
@@ -509,6 +539,7 @@ classdef ClaudeProcessManager < handle
                 [status, result] = system('which claude 2>/dev/null');
                 if status == 0
                     claudePath = strtrim(result);
+                    nodeBinDir = fileparts(claudePath);
                     return;
                 end
             catch
