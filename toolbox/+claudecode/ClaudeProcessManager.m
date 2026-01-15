@@ -125,6 +125,7 @@ classdef ClaudeProcessManager < handle
                 completeCallback function_handle
                 options.allowedTools = {'Edit', 'Write', 'Read', 'Bash', 'Glob', 'Grep'}
                 options.context = ''
+                options.resumeSession = true
             end
 
             % Build full prompt
