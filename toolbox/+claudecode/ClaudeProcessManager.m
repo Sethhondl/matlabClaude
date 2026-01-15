@@ -469,20 +469,20 @@ classdef ClaudeProcessManager < handle
 
             % Common installation paths to check
             homeDir = getenv('HOME');
-            possiblePaths = {
-                % NVM-based Node.js installations (common for npm global packages)
-                fullfile(homeDir, '.nvm', 'versions', 'node', '*', 'bin', 'claude'), ...
-                % Standard npm global installations
-                '/usr/local/bin/claude', ...
-                '/usr/bin/claude', ...
-                '/opt/homebrew/bin/claude', ...
-                fullfile(homeDir, '.local', 'bin', 'claude'), ...
-                fullfile(homeDir, 'bin', 'claude'), ...
-                % npm prefix locations
-                fullfile(homeDir, '.npm-global', 'bin', 'claude'), ...
-                % Yarn global
-                fullfile(homeDir, '.yarn', 'bin', 'claude')
-            };
+            possiblePaths = {};
+
+            % NVM-based Node.js installations (common for npm global packages)
+            possiblePaths{end+1} = fullfile(homeDir, '.nvm', 'versions', 'node', '*', 'bin', 'claude');
+            % Standard npm global installations
+            possiblePaths{end+1} = '/usr/local/bin/claude';
+            possiblePaths{end+1} = '/usr/bin/claude';
+            possiblePaths{end+1} = '/opt/homebrew/bin/claude';
+            possiblePaths{end+1} = fullfile(homeDir, '.local', 'bin', 'claude');
+            possiblePaths{end+1} = fullfile(homeDir, 'bin', 'claude');
+            % npm prefix locations
+            possiblePaths{end+1} = fullfile(homeDir, '.npm-global', 'bin', 'claude');
+            % Yarn global
+            possiblePaths{end+1} = fullfile(homeDir, '.yarn', 'bin', 'claude');
 
             claudePath = '';
 
