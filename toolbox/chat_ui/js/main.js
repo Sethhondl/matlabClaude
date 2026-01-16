@@ -35,6 +35,7 @@ function setup(htmlComponent) {
     htmlComponent.addEventListener('codeResult', handleCodeResult);
     htmlComponent.addEventListener('showImage', handleShowImage);
     htmlComponent.addEventListener('setTheme', handleSetTheme);
+    htmlComponent.addEventListener('clearHistory', handleClearHistory);
 
     // Initialize UI event handlers
     initializeUI();
@@ -59,7 +60,22 @@ function handleShowMessage(event) {
         addAssistantMessage(data.content, true);
     } else if (data.role === 'error') {
         showError(data.content);
+    } else if (data.role === 'system') {
+        addSystemMessage(data.content);
     }
+}
+
+/**
+ * Add a system message to the chat history
+ * @param {string} content - The system message content
+ */
+function addSystemMessage(content) {
+    const history = document.getElementById('message-history');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'system-message';
+    messageDiv.textContent = content;
+    history.appendChild(messageDiv);
+    scrollToBottom();
 }
 
 /**
@@ -140,8 +156,8 @@ function initializeUI() {
  * @param {KeyboardEvent} event
  */
 function handleKeyDown(event) {
-    // Ctrl+Enter or Cmd+Enter to send
-    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+    // Enter to send, Shift+Enter for new line
+    if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
         sendMessage();
     }
@@ -289,4 +305,31 @@ function setTheme(theme) {
     } else {
         document.documentElement.removeAttribute('data-theme');
     }
+}
+
+/**
+ * Handle clearHistory event from MATLAB
+ */
+function handleClearHistory(event) {
+    clearMessageHistory();
+}
+
+/**
+ * Clear the message history and reset chat state
+ */
+function clearMessageHistory() {
+    const history = document.getElementById('message-history');
+
+    // Clear all messages
+    history.innerHTML = '';
+
+    // Reset chat state
+    window.chatState.messages = [];
+    window.chatState.currentStreamMessage = null;
+
+    // Show welcome message again
+    showWelcomeMessage();
+
+    // Reset status
+    updateStatus('ready', 'Ready');
 }

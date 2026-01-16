@@ -300,3 +300,137 @@ function highlightMatlab(code) {
 
     return highlighted;
 }
+
+/**
+ * Append an image to the current streaming message
+ * @param {Object} imageData - Image data with type, media_type, and data fields
+ */
+function appendImageToStreamingMessage(imageData) {
+    if (!window.chatState.currentStreamMessage) {
+        startStreamingMessage();
+    }
+
+    const contentDiv = document.getElementById('streaming-content');
+    if (contentDiv) {
+        // Remove streaming cursor temporarily
+        const cursor = contentDiv.querySelector('.streaming-cursor');
+
+        // Create image container
+        const imageHTML = createImageHTML(imageData);
+        const imageContainer = document.createElement('div');
+        imageContainer.className = 'message-image-container';
+        imageContainer.innerHTML = imageHTML;
+
+        // Insert before cursor or at end
+        if (cursor) {
+            contentDiv.insertBefore(imageContainer, cursor);
+        } else {
+            contentDiv.appendChild(imageContainer);
+        }
+
+        scrollToBottom();
+    }
+}
+
+/**
+ * Create HTML for an image with expand/download buttons
+ * @param {Object} imageData - Image data with type, media_type, and data fields
+ * @returns {string} HTML string
+ */
+function createImageHTML(imageData) {
+    const mediaType = imageData.media_type || 'image/png';
+    const base64Data = imageData.data || '';
+    const src = `data:${mediaType};base64,${base64Data}`;
+
+    // Generate unique ID for this image
+    const imageId = 'img-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+
+    return `
+        <div class="image-wrapper">
+            <img id="${imageId}"
+                 class="message-image"
+                 src="${src}"
+                 alt="MATLAB Plot"
+                 onclick="expandImage('${imageId}')" />
+            <div class="image-actions">
+                <button class="image-btn" onclick="expandImage('${imageId}')" title="Expand">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                    </svg>
+                </button>
+                <button class="image-btn" onclick="downloadImage('${imageId}', 'matlab_plot.png')" title="Download">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Expand image in a modal/lightbox
+ * @param {string} imageId - ID of the image element
+ */
+function expandImage(imageId) {
+    const img = document.getElementById(imageId);
+    if (!img) return;
+
+    // Create modal
+    const modal = document.createElement('div');
+    modal.className = 'image-modal';
+    modal.onclick = (e) => {
+        if (e.target === modal) {
+            modal.remove();
+        }
+    };
+
+    modal.innerHTML = `
+        <div class="image-modal-content">
+            <img src="${img.src}" alt="MATLAB Plot (Expanded)" />
+            <div class="image-modal-actions">
+                <button class="modal-btn" onclick="downloadImage('${imageId}', 'matlab_plot.png')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                    </svg>
+                    Download
+                </button>
+                <button class="modal-btn" onclick="this.closest('.image-modal').remove()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                    Close
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Close on Escape key
+    const handleEscape = (e) => {
+        if (e.key === 'Escape') {
+            modal.remove();
+            document.removeEventListener('keydown', handleEscape);
+        }
+    };
+    document.addEventListener('keydown', handleEscape);
+}
+
+/**
+ * Download an image
+ * @param {string} imageId - ID of the image element
+ * @param {string} filename - Suggested filename
+ */
+function downloadImage(imageId, filename) {
+    const img = document.getElementById(imageId);
+    if (!img) return;
+
+    const link = document.createElement('a');
+    link.href = img.src;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}

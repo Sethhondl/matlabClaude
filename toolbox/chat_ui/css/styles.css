@@ -316,6 +316,19 @@ body {
     font-size: 12px;
 }
 
+/* System message display */
+.system-message {
+    background-color: var(--surface-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin: 8px 0;
+    font-size: 12px;
+    font-style: italic;
+    text-align: center;
+}
+
 /* Inline code */
 .message-content code:not(pre code) {
     background-color: var(--code-bg);
