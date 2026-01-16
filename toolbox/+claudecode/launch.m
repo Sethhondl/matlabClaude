@@ -8,7 +8,10 @@ function app = launch()
 %   Example:
 %       claudecode.launch()
 %
-%   See also: claudecode.ClaudeCodeApp
+%   See also: claudecode.ClaudeCodeApp, claudecode.configurePython
+
+    % Auto-configure Python 3.10+ for Claude Agent SDK
+    claudecode.configurePython();
 
     app = claudecode.ClaudeCodeApp.getInstance();
     app.launch();

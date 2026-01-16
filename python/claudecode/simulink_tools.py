@@ -1,0 +1,244 @@
+"""
+Simulink MCP Tools - Custom tools for Claude to interact with Simulink models.
+
+These tools allow Claude to query and modify Simulink models through
+the MATLAB Engine API.
+"""
+
+from typing import Any, Dict
+
+from claude_agent_sdk import tool
+from .matlab_engine import get_engine
+
+
+@tool(
+    "simulink_query",
+    "Query information about a Simulink model. Can list blocks, get parameters, show connections, or describe subsystems.",
+    {"model": str, "query_type": str, "block_path": str}
+)
+async def simulink_query(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Query Simulink model structure and properties."""
+    engine = get_engine()
+    model = str(args.get("model", ""))
+    query_type = str(args.get("query_type", "blocks"))
+    block_path = args.get("block_path", "")
+
+    if not model:
+        return {
+            "content": [{"type": "text", "text": "Error: Model name required"}],
+            "isError": True
+        }
+
+    try:
+        if not engine.is_connected:
+            engine.connect()
+
+        # Ensure model is loaded
+        engine.eval(f"load_system('{model}')", capture_output=False)
+
+        if query_type == "info":
+            # Get basic model info
+            result = engine.eval(f"""
+                info = struct();
+                info.name = '{model}';
+                info.blocks = length(find_system('{model}', 'SearchDepth', 1, 'Type', 'block'));
+                info.subsystems = length(find_system('{model}', 'BlockType', 'SubSystem'));
+                disp(['Model: ', info.name]);
+                disp(['Blocks (top level): ', num2str(info.blocks)]);
+                disp(['Subsystems: ', num2str(info.subsystems)]);
+            """)
+            return {"content": [{"type": "text", "text": result}]}
+
+        elif query_type == "blocks":
+            # List all blocks at top level
+            result = engine.eval(f"""
+                blocks = find_system('{model}', 'SearchDepth', 1, 'Type', 'block');
+                for i = 1:length(blocks)
+                    blockType = get_param(blocks{{i}}, 'BlockType');
+                    disp([blocks{{i}}, ' (', blockType, ')']);
+                end
+            """)
+            return {"content": [{"type": "text", "text": f"Blocks in {model}:\n{result}"}]}
+
+        elif query_type == "connections":
+            # Show signal connections
+            result = engine.eval(f"""
+                lines = find_system('{model}', 'SearchDepth', 1, 'FindAll', 'on', 'Type', 'line');
+                disp(['Found ', num2str(length(lines)), ' signal lines']);
+                for i = 1:min(length(lines), 20)
+                    srcBlock = get_param(lines(i), 'SrcBlockHandle');
+                    dstBlock = get_param(lines(i), 'DstBlockHandle');
+                    if srcBlock > 0 && dstBlock > 0
+                        srcName = get_param(srcBlock, 'Name');
+                        dstName = get_param(dstBlock, 'Name');
+                        disp([srcName, ' -> ', dstName]);
+                    end
+                end
+            """)
+            return {"content": [{"type": "text", "text": f"Connections in {model}:\n{result}"}]}
+
+        elif query_type == "parameters":
+            # Get block parameters
+            if not block_path:
+                block_path = model
+
+            result = engine.eval(f"""
+                params = get_param('{block_path}', 'ObjectParameters');
+                fn = fieldnames(params);
+                for i = 1:min(length(fn), 30)
+                    try
+                        val = get_param('{block_path}', fn{{i}});
+                        if ischar(val) || isstring(val)
+                            disp([fn{{i}}, ': ', char(val)]);
+                        elseif isnumeric(val) && numel(val) == 1
+                            disp([fn{{i}}, ': ', num2str(val)]);
+                        end
+                    catch
+                    end
+                end
+            """)
+            return {"content": [{"type": "text", "text": f"Parameters for {block_path}:\n{result}"}]}
+
+        elif query_type == "subsystem":
+            # Describe subsystem contents
+            path = block_path if block_path else model
+            result = engine.eval(f"""
+                blocks = find_system('{path}', 'SearchDepth', 1, 'Type', 'block');
+                disp(['Subsystem: {path}']);
+                disp(['Contains ', num2str(length(blocks)-1), ' blocks:']);
+                for i = 1:length(blocks)
+                    if ~strcmp(blocks{{i}}, '{path}')
+                        blockType = get_param(blocks{{i}}, 'BlockType');
+                        [~, name] = fileparts(blocks{{i}});
+                        disp(['  ', name, ' (', blockType, ')']);
+                    end
+                end
+            """)
+            return {"content": [{"type": "text", "text": result}]}
+
+        else:
+            return {
+                "content": [{"type": "text", "text": f"Error: Unknown query type '{query_type}'"}],
+                "isError": True
+            }
+
+    except Exception as e:
+        return {
+            "content": [{"type": "text", "text": f"Simulink Error: {str(e)}"}],
+            "isError": True
+        }
+
+
+@tool(
+    "simulink_modify",
+    "Modify a Simulink model by adding blocks, deleting blocks, connecting signals, or setting parameters.",
+    {"model": str, "action": str, "params": dict}
+)
+async def simulink_modify(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Modify a Simulink model."""
+    engine = get_engine()
+    model = str(args.get("model", ""))
+    action = str(args.get("action", ""))
+    params = args.get("params", {})
+
+    if not model:
+        return {
+            "content": [{"type": "text", "text": "Error: Model name required"}],
+            "isError": True
+        }
+
+    if not action:
+        return {
+            "content": [{"type": "text", "text": "Error: Action required"}],
+            "isError": True
+        }
+
+    try:
+        if not engine.is_connected:
+            engine.connect()
+
+        # Ensure model is loaded
+        engine.eval(f"load_system('{model}')", capture_output=False)
+
+        if action == "add_block":
+            source = params.get("source", "")
+            name = params.get("name", "NewBlock")
+            destination = f"{model}/{name}"
+
+            if not source:
+                return {
+                    "content": [{"type": "text", "text": "Error: source block library path required (e.g., 'simulink/Sources/Constant')"}],
+                    "isError": True
+                }
+
+            engine.eval(f"add_block('{source}', '{destination}')", capture_output=False)
+            return {"content": [{"type": "text", "text": f"Added block '{name}' from '{source}'"}]}
+
+        elif action == "delete_block":
+            block_path = params.get("block_path", "")
+            if not block_path:
+                return {
+                    "content": [{"type": "text", "text": "Error: block_path required"}],
+                    "isError": True
+                }
+
+            engine.eval(f"delete_block('{block_path}')", capture_output=False)
+            return {"content": [{"type": "text", "text": f"Deleted block '{block_path}'"}]}
+
+        elif action == "connect":
+            src_block = params.get("src_block", "")
+            src_port = params.get("src_port", 1)
+            dst_block = params.get("dst_block", "")
+            dst_port = params.get("dst_port", 1)
+
+            if not src_block or not dst_block:
+                return {
+                    "content": [{"type": "text", "text": "Error: src_block and dst_block required"}],
+                    "isError": True
+                }
+
+            # Use add_line to connect
+            engine.eval(
+                f"add_line('{model}', '{src_block}/{src_port}', '{dst_block}/{dst_port}')",
+                capture_output=False
+            )
+            return {"content": [{"type": "text", "text": f"Connected {src_block}/{src_port} to {dst_block}/{dst_port}"}]}
+
+        elif action == "set_param":
+            block_path = params.get("block_path", "")
+            param_name = params.get("param_name", "")
+            value = params.get("value", "")
+
+            if not block_path or not param_name:
+                return {
+                    "content": [{"type": "text", "text": "Error: block_path and param_name required"}],
+                    "isError": True
+                }
+
+            # Handle string vs numeric values
+            if isinstance(value, str):
+                engine.eval(f"set_param('{block_path}', '{param_name}', '{value}')", capture_output=False)
+            else:
+                engine.eval(f"set_param('{block_path}', '{param_name}', {value})", capture_output=False)
+
+            return {"content": [{"type": "text", "text": f"Set {param_name}={value} on {block_path}"}]}
+
+        elif action == "save":
+            engine.eval(f"save_system('{model}')", capture_output=False)
+            return {"content": [{"type": "text", "text": f"Saved model '{model}'"}]}
+
+        else:
+            return {
+                "content": [{"type": "text", "text": f"Error: Unknown action '{action}'"}],
+                "isError": True
+            }
+
+    except Exception as e:
+        return {
+            "content": [{"type": "text", "text": f"Simulink Error: {str(e)}"}],
+            "isError": True
+        }
+
+
+# List of all Simulink tools for easy importing
+SIMULINK_TOOLS = [simulink_query, simulink_modify]

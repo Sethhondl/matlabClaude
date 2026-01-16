@@ -1,0 +1,12 @@
+# Claude Agent SDK for MATLAB Integration
+# Requires Python 3.10+ - install with: pip install claude-agent-sdk
+# If Python < 3.10 or SDK not installed, falls back to CLI wrapper mode.
+claude-agent-sdk>=0.1.0
+
+# MATLAB Engine API for Python
+# Note: matlabengine requires MATLAB R2024b+ installed
+# Install separately with: pip install matlabengine
+# matlabengine>=24.2
+
+# Async support (used by agent)
+anyio>=4.0.0
