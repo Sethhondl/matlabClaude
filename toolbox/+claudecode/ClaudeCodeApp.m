@@ -2,8 +2,9 @@ classdef ClaudeCodeApp < handle
     %CLAUDECODEAPP Main entry point for Claude Code MATLAB integration
     %
     %   This class creates and manages the Claude Code assistant interface
-    %   as a standalone window with an embedded HTML chat interface.
-    %   Core logic is handled by a Python backend.
+    %   with an embedded HTML chat interface. By default, the window docks
+    %   into the MATLAB desktop as a side panel that can be tiled alongside
+    %   the Editor and other tools.
     %
     %   Example:
     %       app = claudecode.ClaudeCodeApp();
@@ -11,6 +12,14 @@ classdef ClaudeCodeApp < handle
     %
     %   Or use the convenience function:
     %       claudecode.launch()
+    %
+    %   Docking controls:
+    %       app.dock()      - Dock into MATLAB desktop
+    %       app.undock()    - Undock to floating window
+    %       app.isDocked()  - Check current dock state
+    %
+    %   Tip: After launching, right-click the "Claude Code" tab and select
+    %   "Tile Right" to position it as a persistent side panel.
 
     properties (SetAccess = private)
         Settings            % Configuration settings
@@ -30,11 +39,16 @@ classdef ClaudeCodeApp < handle
         DEFAULT_HEIGHT = 700
     end
 
+    properties (Access = private)
+        IsDocked = true     % Whether to dock into MATLAB desktop
+    end
+
     methods
         function obj = ClaudeCodeApp()
             %CLAUDECODEAPP Constructor
 
             obj.Settings = obj.loadSettings();
+            obj.IsDocked = obj.Settings.dockWindow;
             obj.initialize();
         end
 
@@ -107,6 +121,39 @@ classdef ClaudeCodeApp < handle
 
             bridge = obj.PythonBridge;
         end
+
+        function dock(obj)
+            %DOCK Dock the window into the MATLAB desktop
+            %   After docking, you can tile the panel to the side by:
+            %   1. Right-click the tab title
+            %   2. Select "Tile Right" or drag to desired position
+
+            if ~isempty(obj.Figure) && isvalid(obj.Figure)
+                obj.Figure.WindowStyle = 'docked';
+                obj.IsDocked = true;
+            end
+        end
+
+        function undock(obj)
+            %UNDOCK Undock the window to a floating window
+
+            if ~isempty(obj.Figure) && isvalid(obj.Figure)
+                obj.Figure.WindowStyle = 'normal';
+                obj.IsDocked = false;
+
+                % Reposition to right side of screen
+                screenSize = get(0, 'ScreenSize');
+                xPos = screenSize(3) - obj.DEFAULT_WIDTH - 50;
+                yPos = (screenSize(4) - obj.DEFAULT_HEIGHT) / 2;
+                obj.Figure.Position = [xPos, yPos, obj.DEFAULT_WIDTH, obj.DEFAULT_HEIGHT];
+            end
+        end
+
+        function tf = isDocked(obj)
+            %ISDOCKED Returns true if window is currently docked
+
+            tf = obj.IsDocked;
+        end
     end
 
     methods (Access = private)
@@ -144,18 +191,27 @@ classdef ClaudeCodeApp < handle
         function createWindow(obj)
             %CREATEWINDOW Create the main application window
 
-            % Calculate position (right side of screen)
-            screenSize = get(0, 'ScreenSize');
-            xPos = screenSize(3) - obj.DEFAULT_WIDTH - 50;
-            yPos = (screenSize(4) - obj.DEFAULT_HEIGHT) / 2;
+            if obj.IsDocked
+                % Create docked figure - WindowStyle must be set first
+                obj.Figure = uifigure(...
+                    'Name', obj.APP_TITLE, ...
+                    'Color', [0.12 0.12 0.12], ...
+                    'Resize', 'on', ...
+                    'CloseRequestFcn', @(~,~) obj.onCloseRequest());
+                obj.Figure.WindowStyle = 'docked';
+            else
+                % Create floating window (right side of screen)
+                screenSize = get(0, 'ScreenSize');
+                xPos = screenSize(3) - obj.DEFAULT_WIDTH - 50;
+                yPos = (screenSize(4) - obj.DEFAULT_HEIGHT) / 2;
 
-            % Create uifigure
-            obj.Figure = uifigure(...
-                'Name', obj.APP_TITLE, ...
-                'Position', [xPos, yPos, obj.DEFAULT_WIDTH, obj.DEFAULT_HEIGHT], ...
-                'Color', [0.12 0.12 0.12], ...
-                'Resize', 'on', ...
-                'CloseRequestFcn', @(~,~) obj.onCloseRequest());
+                obj.Figure = uifigure(...
+                    'Name', obj.APP_TITLE, ...
+                    'Position', [xPos, yPos, obj.DEFAULT_WIDTH, obj.DEFAULT_HEIGHT], ...
+                    'Color', [0.12 0.12 0.12], ...
+                    'Resize', 'on', ...
+                    'CloseRequestFcn', @(~,~) obj.onCloseRequest());
+            end
 
             % Create chat controller with Python bridge
             obj.ChatController = claudecode.ChatUIController(...
@@ -197,6 +253,7 @@ classdef ClaudeCodeApp < handle
             settings.autoIncludeWorkspace = false;
             settings.autoIncludeSimulink = false;
             settings.maxHistoryLength = 100;
+            settings.dockWindow = true;  % Dock into MATLAB desktop by default
         end
     end
 
