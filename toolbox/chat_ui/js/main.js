@@ -33,6 +33,8 @@ function setup(htmlComponent) {
     htmlComponent.addEventListener('showError', handleShowError);
     htmlComponent.addEventListener('updateStatus', handleUpdateStatus);
     htmlComponent.addEventListener('codeResult', handleCodeResult);
+    htmlComponent.addEventListener('showImage', handleShowImage);
+    htmlComponent.addEventListener('setTheme', handleSetTheme);
 
     // Initialize UI event handlers
     initializeUI();
@@ -107,6 +109,14 @@ function handleUpdateStatus(event) {
 function handleCodeResult(event) {
     const data = event.Data;
     showCodeResult(data.blockId, data.output, !data.success);
+}
+
+/**
+ * Handle showImage event from MATLAB
+ */
+function handleShowImage(event) {
+    const data = event.Data;
+    appendImageToStreamingMessage(data);
 }
 
 /**
@@ -257,4 +267,26 @@ function showWelcomeMessage() {
 function scrollToBottom() {
     const history = document.getElementById('message-history');
     history.scrollTop = history.scrollHeight;
+}
+
+/**
+ * Handle setTheme event from MATLAB
+ * @param {Event} event - Contains theme data ('light' or 'dark')
+ */
+function handleSetTheme(event) {
+    const data = event.Data;
+    const theme = data.theme || 'light';
+    setTheme(theme);
+}
+
+/**
+ * Set the UI theme to match MATLAB
+ * @param {string} theme - 'light' or 'dark'
+ */
+function setTheme(theme) {
+    if (theme === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+        document.documentElement.removeAttribute('data-theme');
+    }
 }

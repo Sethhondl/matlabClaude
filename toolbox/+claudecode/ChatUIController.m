@@ -88,7 +88,9 @@ classdef ChatUIController < handle
             %ENDSTREAMING Signal end of streaming response
 
             if ~isempty(obj.CurrentStreamText)
-                obj.addMessage('assistant', obj.CurrentStreamText);
+                % Store in history without sending to UI (JS finalizeStreamingMessage handles UI)
+                msg = struct('role', 'assistant', 'content', obj.CurrentStreamText, 'timestamp', now);
+                obj.Messages{end+1} = msg;
             end
             obj.IsStreaming = false;
             obj.CurrentStreamText = '';
@@ -215,12 +217,17 @@ classdef ChatUIController < handle
             end
 
             % No agent handled it - send to Claude via Python
-            contextStr = '';
+            % Always include directory and editor context
+            contextStr = obj.WorkspaceProvider.getCurrentDirectoryContext();
+            contextStr = [contextStr, newline, newline, obj.WorkspaceProvider.getEditorContext()];
+
+            % Optionally include workspace context
             if isfield(data, 'includeWorkspace') && data.includeWorkspace
-                contextStr = [contextStr, obj.WorkspaceProvider.getWorkspaceContext(), newline, newline];
+                contextStr = [contextStr, newline, newline, obj.WorkspaceProvider.getWorkspaceContext()];
             end
+            % Optionally include Simulink context
             if isfield(data, 'includeSimulink') && data.includeSimulink && ~isempty(obj.SimulinkBridge)
-                contextStr = [contextStr, obj.SimulinkBridge.buildSimulinkContext(), newline, newline];
+                contextStr = [contextStr, newline, newline, obj.SimulinkBridge.buildSimulinkContext()];
             end
 
             obj.startStreaming();
@@ -243,17 +250,34 @@ classdef ChatUIController < handle
         end
 
         function pollAsyncResponse(obj)
-            %POLLASYNCRESPONSE Poll Python for async response chunks
+            %POLLASYNCRESPONSE Poll Python for async response content
 
             try
-                % Get any new chunks
-                chunks = obj.PythonBridge.poll_async_chunks();
-                chunksList = cell(chunks);
+                % Get any new content (text, images, tool use)
+                content = obj.PythonBridge.poll_async_content();
+                contentList = cell(content);
 
-                for i = 1:length(chunksList)
-                    chunk = char(chunksList{i});
-                    if ~isempty(chunk)
-                        obj.sendStreamChunk(chunk);
+                for i = 1:length(contentList)
+                    item = contentList{i};
+                    if isa(item, 'py.dict')
+                        item = obj.pyDictToStruct(item);
+                    end
+
+                    if isfield(item, 'type')
+                        itemType = char(item.type);
+                        switch itemType
+                            case 'text'
+                                text = char(item.text);
+                                if ~isempty(text)
+                                    obj.sendStreamChunk(text);
+                                end
+                            case 'image'
+                                obj.sendImage(item.source);
+                            case 'tool_use'
+                                % Show tool use indicator
+                                toolName = char(item.name);
+                                obj.sendStreamChunk(sprintf('\n[Using tool: %s]\n', toolName));
+                        end
                     end
                 end
 
@@ -288,6 +312,36 @@ classdef ChatUIController < handle
                 obj.endStreaming();
                 obj.sendError(ME.message);
             end
+        end
+
+        function sendImage(obj, source)
+            %SENDIMAGE Send an image to the UI
+            %
+            %   source: struct with 'type', 'media_type', 'data' fields
+
+            if isa(source, 'py.dict')
+                source = obj.pyDictToStruct(source);
+            end
+
+            % Extract image data
+            imageData = struct();
+            if isfield(source, 'type')
+                imageData.type = char(source.type);
+            else
+                imageData.type = 'base64';
+            end
+            if isfield(source, 'media_type')
+                imageData.media_type = char(source.media_type);
+            else
+                imageData.media_type = 'image/png';
+            end
+            if isfield(source, 'data')
+                imageData.data = char(source.data);
+            else
+                return;  % No image data, skip
+            end
+
+            obj.sendToJS('showImage', imageData);
         end
 
         function onRunCode(obj, data)
@@ -334,10 +388,47 @@ classdef ChatUIController < handle
 
             obj.IsReady = true;
 
+            % Detect and send theme to UI
+            currentTheme = obj.detectMatlabTheme();
+            obj.sendToJS('setTheme', struct('theme', currentTheme));
+
             % Send welcome message
             obj.sendToJS('showMessage', struct(...
                 'role', 'assistant', ...
                 'content', 'Welcome to Claude Code! Ask questions about your MATLAB code, get help with Simulink models, or request code changes.'));
+        end
+
+        function themeStr = detectMatlabTheme(obj)
+            %DETECTMATLABTHEME Detect current MATLAB theme (light or dark)
+
+            themeStr = 'light';  % Default to light
+
+            try
+                % Try to get theme from settings (R2025a+)
+                s = settings;
+                if isprop(s.matlab, 'appearance') && ...
+                   isprop(s.matlab.appearance, 'MATLABTheme')
+                    themeValue = s.matlab.appearance.MATLABTheme.ActiveValue;
+                    if contains(lower(char(themeValue)), 'dark')
+                        themeStr = 'dark';
+                    end
+                end
+            catch
+                % Fallback: check figure theme if available
+                try
+                    if ~isempty(obj.ParentFigure) && isvalid(obj.ParentFigure)
+                        figTheme = obj.ParentFigure.Theme;
+                        if ~isempty(figTheme)
+                            baseStyle = figTheme.BaseColorStyle;
+                            if strcmpi(baseStyle, 'dark')
+                                themeStr = 'dark';
+                            end
+                        end
+                    end
+                catch
+                    % Keep default light theme
+                end
+            end
         end
 
         function addMessage(obj, role, content)
