@@ -55,6 +55,9 @@ class MatlabBridge:
         Returns:
             Dict with 'handled', 'response', 'agent_name'
         """
+        # Convert MATLAB string to Python string
+        message = str(message) if message else ""
+
         handled, response, agent_name = self.agent_manager.dispatch(
             message, context or {}
         )
@@ -109,6 +112,10 @@ class MatlabBridge:
             allowed_tools: List of allowed tools
             resume_session: Whether to resume session
         """
+        # Convert MATLAB strings to Python strings
+        prompt = str(prompt) if prompt else ""
+        context = str(context) if context else ""
+
         with self._async_lock:
             self._async_response = None
             self._async_chunks = []
