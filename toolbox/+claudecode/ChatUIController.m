@@ -3,9 +3,10 @@ classdef ChatUIController < handle
     %
     %   This class creates and manages the chat interface using an embedded
     %   HTML webview, handling bidirectional communication between the UI and MATLAB.
+    %   Core logic (Claude communication, agents) is handled by Python.
     %
     %   Example:
-    %       controller = claudecode.ChatUIController(parentFigure, processManager);
+    %       controller = claudecode.ChatUIController(parentFigure, bridge);
 
     properties (Access = public)
         SimulinkBridge      % Reference to SimulinkBridge for model context
@@ -14,12 +15,12 @@ classdef ChatUIController < handle
 
     properties (Access = private)
         ParentFigure        % uifigure containing the UI
-        ProcessManager      % Reference to ClaudeProcessManager
-        CodeExecutor        % Reference to CodeExecutor
+        PythonBridge        % Python MatlabBridge instance
+        CodeExecutor        % Reference to CodeExecutor (MATLAB-side)
         WorkspaceProvider   % Reference to WorkspaceContextProvider
-        AgentManager        % Reference to AgentManager for custom agents
         HTMLComponent       % uihtml component
         IsReady = false     % Whether UI has initialized
+        PollingTimer        % Timer for polling async responses
 
         % State
         Messages = {}       % Cell array of message structs
@@ -33,26 +34,30 @@ classdef ChatUIController < handle
     end
 
     methods
-        function obj = ChatUIController(parent, processManager)
+        function obj = ChatUIController(parent, pythonBridge)
             %CHATUICONTROLLER Constructor
             %
-            %   controller = ChatUIController(parent, processManager)
+            %   controller = ChatUIController(parent, pythonBridge)
             %
             %   parent: uifigure to contain the chat UI
-            %   processManager: ClaudeProcessManager instance
+            %   pythonBridge: Python MatlabBridge instance
 
             obj.ParentFigure = parent;
-            obj.ProcessManager = processManager;
+            obj.PythonBridge = pythonBridge;
             obj.CodeExecutor = claudecode.CodeExecutor();
             obj.WorkspaceProvider = claudecode.WorkspaceContextProvider();
-            obj.AgentManager = claudecode.AgentManager();
 
             obj.createUI();
         end
 
         function delete(obj)
             %DELETE Destructor
-            % Clean up UI components if needed
+
+            % Stop polling timer
+            if ~isempty(obj.PollingTimer) && isvalid(obj.PollingTimer)
+                stop(obj.PollingTimer);
+                delete(obj.PollingTimer);
+            end
         end
 
         function sendAssistantMessage(obj, content)
@@ -188,54 +193,100 @@ classdef ChatUIController < handle
             % Notify via event
             notify(obj, 'MessageSent');
 
-            % Build context for agents and Claude
-            context = struct();
+            % Build context for agents
+            context = py.dict();
             if isfield(data, 'includeWorkspace') && data.includeWorkspace
-                context.workspace = obj.WorkspaceProvider.getWorkspaceContext();
+                workspaceCtx = obj.WorkspaceProvider.getWorkspaceContext();
+                context{'workspace'} = workspaceCtx;
             end
             if isfield(data, 'includeSimulink') && data.includeSimulink && ~isempty(obj.SimulinkBridge)
-                context.simulink = obj.SimulinkBridge.buildSimulinkContext();
+                simulinkCtx = obj.SimulinkBridge.buildSimulinkContext();
+                context{'simulink'} = simulinkCtx;
             end
 
-            % Check if any custom agent can handle this message
-            [handled, response, agentName] = obj.AgentManager.dispatch(message, context);
+            % Check if any Python agent can handle this message
+            agentResult = obj.PythonBridge.dispatch_to_agent(message, context);
+            agentResult = obj.pyDictToStruct(agentResult);
 
-            if handled
+            if agentResult.handled
                 % Agent handled it - show response directly
-                obj.sendAssistantMessage(response);
+                obj.sendAssistantMessage(char(agentResult.response));
                 return;
             end
 
-            % No agent handled it - send to Claude
+            % No agent handled it - send to Claude via Python
             contextStr = '';
-            if isfield(context, 'workspace')
-                contextStr = [contextStr, context.workspace, newline, newline];
+            if isfield(data, 'includeWorkspace') && data.includeWorkspace
+                contextStr = [contextStr, obj.WorkspaceProvider.getWorkspaceContext(), newline, newline];
             end
-            if isfield(context, 'simulink')
-                contextStr = [contextStr, context.simulink, newline, newline];
+            if isfield(data, 'includeSimulink') && data.includeSimulink && ~isempty(obj.SimulinkBridge)
+                contextStr = [contextStr, obj.SimulinkBridge.buildSimulinkContext(), newline, newline];
             end
 
             obj.startStreaming();
 
-            obj.ProcessManager.sendMessageAsync(message, ...
-                @(chunk) obj.onStreamChunk(chunk), ...
-                @(result) obj.onMessageComplete(result), ...
-                'context', contextStr);
+            % Start async message via Python
+            obj.PythonBridge.start_async_message(message, contextStr);
+
+            % Start polling for responses
+            obj.startPolling();
         end
 
-        function onStreamChunk(obj, chunk)
-            %ONSTREAMCHUNK Handle streaming chunk from Claude
+        function startPolling(obj)
+            %STARTPOLLING Start polling for async response chunks
 
-            obj.sendStreamChunk(chunk);
+            obj.PollingTimer = timer(...
+                'ExecutionMode', 'fixedSpacing', ...
+                'Period', 0.05, ...  % 50ms polling
+                'TimerFcn', @(~,~) obj.pollAsyncResponse());
+            start(obj.PollingTimer);
         end
 
-        function onMessageComplete(obj, result)
-            %ONMESSAGECOMPLETE Handle complete response from Claude
+        function pollAsyncResponse(obj)
+            %POLLASYNCRESPONSE Poll Python for async response chunks
 
-            obj.endStreaming();
+            try
+                % Get any new chunks
+                chunks = obj.PythonBridge.poll_async_chunks();
+                chunksList = cell(chunks);
 
-            if ~result.success && ~isempty(result.error)
-                obj.sendError(result.error);
+                for i = 1:length(chunksList)
+                    chunk = char(chunksList{i});
+                    if ~isempty(chunk)
+                        obj.sendStreamChunk(chunk);
+                    end
+                end
+
+                % Check if complete
+                if obj.PythonBridge.is_async_complete()
+                    % Stop polling
+                    stop(obj.PollingTimer);
+                    delete(obj.PollingTimer);
+                    obj.PollingTimer = [];
+
+                    % Get final response
+                    response = obj.PythonBridge.get_async_response();
+                    if ~isempty(response)
+                        response = obj.pyDictToStruct(response);
+                        obj.endStreaming();
+
+                        if ~response.success && ~isempty(response.error)
+                            obj.sendError(char(response.error));
+                        end
+                    else
+                        obj.endStreaming();
+                    end
+                end
+
+            catch ME
+                % Stop polling on error
+                if ~isempty(obj.PollingTimer) && isvalid(obj.PollingTimer)
+                    stop(obj.PollingTimer);
+                    delete(obj.PollingTimer);
+                    obj.PollingTimer = [];
+                end
+                obj.endStreaming();
+                obj.sendError(ME.message);
             end
         end
 
@@ -244,7 +295,7 @@ classdef ChatUIController < handle
 
             code = data.code;
 
-            % Execute the code
+            % Execute the code (stays in MATLAB)
             [result, isError] = obj.CodeExecutor.execute(code);
 
             % Send result back to UI
@@ -305,6 +356,12 @@ classdef ChatUIController < handle
             if obj.IsReady && ~isempty(obj.HTMLComponent) && isvalid(obj.HTMLComponent)
                 sendEventToHTMLSource(obj.HTMLComponent, eventName, data);
             end
+        end
+
+        function s = pyDictToStruct(~, pyDict)
+            %PYDICTTOSTRUCT Convert Python dict to MATLAB struct
+
+            s = struct(pyDict);
         end
     end
 end

@@ -3,6 +3,7 @@ classdef ClaudeCodeApp < handle
     %
     %   This class creates and manages the Claude Code assistant interface
     %   as a standalone window with an embedded HTML chat interface.
+    %   Core logic is handled by a Python backend.
     %
     %   Example:
     %       app = claudecode.ClaudeCodeApp();
@@ -18,7 +19,7 @@ classdef ClaudeCodeApp < handle
     properties (Access = private)
         Figure              % Main uifigure window
         ChatController      % ChatUIController instance
-        ProcessManager      % ClaudeProcessManager instance
+        PythonBridge        % Python MatlabBridge instance
         SimulinkBridge      % SimulinkBridge instance
         IsOpen = false      % Whether the app is open
     end
@@ -52,8 +53,8 @@ classdef ClaudeCodeApp < handle
                 return;
             end
 
-            % Verify Claude CLI is available
-            if ~obj.ProcessManager.isClaudeAvailable()
+            % Verify Claude CLI is available via Python
+            if ~obj.PythonBridge.is_claude_available()
                 obj.showSetupInstructions();
                 return;
             end
@@ -65,9 +66,13 @@ classdef ClaudeCodeApp < handle
         function close(obj)
             %CLOSE Close the application
 
-            % Stop process manager
-            if ~isempty(obj.ProcessManager)
-                obj.ProcessManager.stopProcess();
+            % Stop Python process
+            if ~isempty(obj.PythonBridge)
+                try
+                    obj.PythonBridge.stop_process();
+                catch
+                    % Python may not be available
+                end
             end
 
             % Close figure
@@ -96,14 +101,45 @@ classdef ClaudeCodeApp < handle
                 obj.Figure.Visible = 'off';
             end
         end
+
+        function bridge = getPythonBridge(obj)
+            %GETPYTHONBRIDGE Get the Python bridge for custom agent registration
+
+            bridge = obj.PythonBridge;
+        end
     end
 
     methods (Access = private)
         function initialize(obj)
             %INITIALIZE Initialize components
 
-            obj.ProcessManager = claudecode.ClaudeProcessManager();
+            % Add Python package to path
+            obj.setupPythonPath();
+
+            % Create Python bridge
+            obj.PythonBridge = py.claudecode.MatlabBridge();
+
+            % Create Simulink bridge (MATLAB-side)
             obj.SimulinkBridge = claudecode.SimulinkBridge();
+        end
+
+        function setupPythonPath(~)
+            %SETUPPYTHONPATH Add Python package to Python path
+
+            % Get path to python folder
+            thisFile = mfilename('fullpath');
+            toolboxDir = fileparts(fileparts(thisFile));
+            projectDir = fileparts(toolboxDir);
+            pythonDir = fullfile(projectDir, 'python');
+
+            % Add to Python path if not already there
+            pythonPath = py.sys.path;
+            pathList = cell(pythonPath);
+            pathList = cellfun(@char, pathList, 'UniformOutput', false);
+
+            if ~any(strcmp(pathList, pythonDir))
+                py.sys.path.insert(int64(0), pythonDir);
+            end
         end
 
         function createWindow(obj)
@@ -122,9 +158,9 @@ classdef ClaudeCodeApp < handle
                 'Resize', 'on', ...
                 'CloseRequestFcn', @(~,~) obj.onCloseRequest());
 
-            % Create chat controller with HTML interface
+            % Create chat controller with Python bridge
             obj.ChatController = claudecode.ChatUIController(...
-                obj.Figure, obj.ProcessManager);
+                obj.Figure, obj.PythonBridge);
 
             % Connect Simulink bridge
             obj.ChatController.SimulinkBridge = obj.SimulinkBridge;
