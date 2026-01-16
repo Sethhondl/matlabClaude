@@ -97,6 +97,113 @@ classdef WorkspaceContextProvider < handle
             summary = sprintf('%d variables (%s total): %s', ...
                 length(vars), sizeStr, strjoin(parts, ', '));
         end
+
+        function contextStr = getCurrentDirectoryContext(obj)
+            %GETCURRENTDIRECTORYCONTEXT Get current directory and file listing
+            %
+            %   Returns formatted context about the current working directory
+            %   and lists files (limited to 20 items).
+
+            currentDir = pwd;
+            lines = {'## Current Directory:', sprintf('`%s`', currentDir), ''};
+
+            % Get directory contents
+            try
+                contents = dir(currentDir);
+                % Filter out . and ..
+                contents = contents(~ismember({contents.name}, {'.', '..'}));
+
+                if isempty(contents)
+                    lines{end+1} = 'Directory is empty.';
+                else
+                    lines{end+1} = 'Files in directory:';
+
+                    % Sort: directories first, then files
+                    dirs = contents([contents.isdir]);
+                    files = contents(~[contents.isdir]);
+
+                    % Sort each group alphabetically
+                    if ~isempty(dirs)
+                        [~, idx] = sort(lower({dirs.name}));
+                        dirs = dirs(idx);
+                    end
+                    if ~isempty(files)
+                        [~, idx] = sort(lower({files.name}));
+                        files = files(idx);
+                    end
+
+                    contents = [dirs; files];
+                    maxItems = 20;
+                    displayCount = min(length(contents), maxItems);
+
+                    for i = 1:displayCount
+                        item = contents(i);
+                        if item.isdir
+                            lines{end+1} = sprintf('- [DIR] %s/', item.name);
+                        else
+                            sizeStr = obj.formatBytes(item.bytes);
+                            lines{end+1} = sprintf('- %s (%s)', item.name, sizeStr);
+                        end
+                    end
+
+                    if length(contents) > maxItems
+                        lines{end+1} = sprintf('... and %d more items', length(contents) - maxItems);
+                    end
+                end
+            catch ME
+                lines{end+1} = sprintf('Error listing directory: %s', ME.message);
+            end
+
+            contextStr = strjoin(lines, newline);
+        end
+
+        function contextStr = getEditorContext(~)
+            %GETEDITORCONTEXT Get information about the currently open file
+            %
+            %   Returns formatted context about the active editor file,
+            %   including filename, path, cursor position, and selected text.
+
+            lines = {'## Currently Open File:'};
+
+            try
+                editorObj = matlab.desktop.editor.getActive();
+
+                if isempty(editorObj)
+                    lines{end+1} = 'No file currently open in editor.';
+                else
+                    % Get file information
+                    [~, filename, ext] = fileparts(editorObj.Filename);
+                    fullFilename = [filename, ext];
+
+                    lines{end+1} = sprintf('- **File**: `%s`', fullFilename);
+                    lines{end+1} = sprintf('- **Path**: `%s`', editorObj.Filename);
+
+                    % Get cursor position
+                    selection = editorObj.Selection;
+                    if ~isempty(selection)
+                        cursorLine = selection(1);
+                        lines{end+1} = sprintf('- **Cursor at line**: %d', cursorLine);
+
+                        % Check for selected text
+                        selectedText = editorObj.SelectedText;
+                        if ~isempty(selectedText)
+                            % Truncate if too long
+                            maxSelectionLen = 500;
+                            if length(selectedText) > maxSelectionLen
+                                selectedText = [selectedText(1:maxSelectionLen), '...'];
+                            end
+                            % Escape any backticks in selected text
+                            selectedText = strrep(selectedText, '`', '\`');
+                            lines{end+1} = sprintf('- **Selected text**: ```%s```', selectedText);
+                        end
+                    end
+                end
+            catch ME
+                lines{end+1} = sprintf('Unable to get editor info: %s', ME.message);
+            end
+
+            contextStr = strjoin(lines, newline);
+        end
     end
 
     methods (Access = private)

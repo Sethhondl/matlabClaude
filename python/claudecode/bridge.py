@@ -60,7 +60,8 @@ class MatlabBridge:
 
         # Async state
         self._async_response: Optional[Dict[str, Any]] = None
-        self._async_chunks: List[str] = []
+        self._async_chunks: List[str] = []  # Text-only chunks for backward compat
+        self._async_content: List[Dict[str, Any]] = []  # Full structured content
         self._async_complete: bool = False
         self._async_lock = threading.Lock()
         self._async_thread: Optional[threading.Thread] = None
@@ -207,6 +208,7 @@ class MatlabBridge:
         with self._async_lock:
             self._async_response = None
             self._async_chunks = []
+            self._async_content = []
             self._async_complete = False
 
         if self._use_sdk:
@@ -247,13 +249,29 @@ class MatlabBridge:
 
             await self._agent.start()
             try:
-                async for chunk in self._agent.query(full_prompt):
+                text_parts = []
+                images = []
+
+                async for content in self._agent.query(full_prompt):
                     with self._async_lock:
-                        self._async_chunks.append(chunk)
+                        # Store full structured content
+                        self._async_content.append(content)
+
+                        # Also store text-only for backward compatibility
+                        if content.get('type') == 'text':
+                            self._async_chunks.append(content.get('text', ''))
+                            text_parts.append(content.get('text', ''))
+                        elif content.get('type') == 'image':
+                            images.append(content.get('source', {}))
+                        elif content.get('type') == 'tool_use':
+                            tool_text = f"\n[Using tool: {content.get('name', 'unknown')}]\n"
+                            self._async_chunks.append(tool_text)
+                            text_parts.append(tool_text)
 
                 with self._async_lock:
                     self._async_response = {
-                        'text': ''.join(self._async_chunks),
+                        'text': ''.join(text_parts),
+                        'images': images,
                         'success': True,
                         'error': '',
                         'session_id': self._agent.session_id or ''
@@ -263,6 +281,7 @@ class MatlabBridge:
                 with self._async_lock:
                     self._async_response = {
                         'text': '',
+                        'images': [],
                         'success': False,
                         'error': str(e),
                         'session_id': ''
@@ -274,7 +293,7 @@ class MatlabBridge:
         asyncio.run(run())
 
     def poll_async_chunks(self) -> List[str]:
-        """Poll for new async chunks.
+        """Poll for new async text chunks (backward compatible).
 
         Returns:
             List of new text chunks since last poll
@@ -283,6 +302,20 @@ class MatlabBridge:
             chunks = self._async_chunks.copy()
             self._async_chunks = []
             return chunks
+
+    def poll_async_content(self) -> List[Dict[str, Any]]:
+        """Poll for new async content (text, images, tool use).
+
+        Returns:
+            List of content dicts since last poll. Each dict has:
+            - {"type": "text", "text": "..."}
+            - {"type": "image", "source": {"type": "base64", "media_type": "...", "data": "..."}}
+            - {"type": "tool_use", "name": "..."}
+        """
+        with self._async_lock:
+            content = self._async_content.copy()
+            self._async_content = []
+            return content
 
     def is_async_complete(self) -> bool:
         """Check if async message is complete."""

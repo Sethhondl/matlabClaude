@@ -58,6 +58,7 @@ def find_claude_cli() -> Optional[str]:
 
 from .matlab_tools import MATLAB_TOOLS
 from .simulink_tools import SIMULINK_TOOLS
+from .file_tools import FILE_TOOLS
 from .matlab_engine import get_engine, stop_engine
 
 
@@ -68,12 +69,18 @@ MATLAB_SYSTEM_PROMPT = """You are an expert MATLAB and Simulink assistant. You h
 3. **Create Plots** (matlab_plot): Generate MATLAB plots and visualizations
 4. **Query Simulink Models** (simulink_query): Explore Simulink model structure, blocks, and connections
 5. **Modify Simulink Models** (simulink_modify): Add blocks, connect signals, set parameters
+6. **Read Files** (file_read): Read contents of files in MATLAB's current directory
+7. **Write Files** (file_write): Create or modify files in MATLAB's current directory
+8. **List Files** (file_list): List directory contents with glob pattern support
+9. **Create Directories** (file_mkdir): Create directories in MATLAB's current directory
 
 When helping users:
 - Use the matlab_execute tool to run MATLAB commands
 - Check the workspace with matlab_workspace to understand what variables exist
 - Create visualizations with matlab_plot when asked for plots or figures
 - For Simulink tasks, first query the model structure before making modifications
+- Use file_read to examine existing code, file_write to create or update files
+- All file operations are restricted to MATLAB's current working directory for security
 
 Always explain what you're doing and show relevant results to the user."""
 
@@ -115,8 +122,8 @@ class MatlabAgent:
 
     def _build_tools(self) -> None:
         """Build the MCP server and allowed tools list."""
-        # Create MCP server with MATLAB + Simulink tools
-        all_tools = MATLAB_TOOLS + SIMULINK_TOOLS
+        # Create MCP server with MATLAB + Simulink + File tools
+        all_tools = MATLAB_TOOLS + SIMULINK_TOOLS + FILE_TOOLS
 
         self.mcp_server = create_sdk_mcp_server(
             name="matlab",
@@ -133,6 +140,11 @@ class MatlabAgent:
             # Simulink tools
             "mcp__matlab__simulink_query",
             "mcp__matlab__simulink_modify",
+            # File tools
+            "mcp__matlab__file_read",
+            "mcp__matlab__file_write",
+            "mcp__matlab__file_list",
+            "mcp__matlab__file_mkdir",
         ]
 
         if self.include_file_tools:
@@ -190,14 +202,17 @@ class MatlabAgent:
             }
         }
 
-    async def query(self, prompt: str) -> AsyncIterator[str]:
-        """Send a query and yield response text chunks.
+    async def query(self, prompt: str) -> AsyncIterator[Dict[str, Any]]:
+        """Send a query and yield response content (text, images, tool use).
 
         Args:
             prompt: User's message/query
 
         Yields:
-            Text chunks from Claude's response
+            Dict with 'type' and content. Types:
+            - {"type": "text", "text": "..."}
+            - {"type": "image", "source": {"type": "base64", "media_type": "...", "data": "..."}}
+            - {"type": "tool_use", "name": "..."}
         """
         if not self.client:
             raise RuntimeError("Agent not started. Call start() first.")
@@ -208,13 +223,34 @@ class MatlabAgent:
             msg_type = type(message).__name__
 
             if msg_type == 'AssistantMessage':
-                # Extract text from content blocks
+                # Extract content blocks (text, images, tool use)
                 if hasattr(message, 'content'):
                     for block in message.content:
                         if hasattr(block, 'text'):
-                            yield block.text
+                            yield {"type": "text", "text": block.text}
+                        elif hasattr(block, 'type') and block.type == 'image':
+                            # Image block from tool result
+                            yield {
+                                "type": "image",
+                                "source": block.source if hasattr(block, 'source') else {}
+                            }
                         elif hasattr(block, 'name'):  # Tool use block
-                            yield f"\n[Using tool: {block.name}]\n"
+                            yield {"type": "tool_use", "name": block.name}
+
+            elif msg_type == 'ToolResult':
+                # Tool results may contain images
+                if hasattr(message, 'content'):
+                    for block in message.content:
+                        if isinstance(block, dict) and block.get('type') == 'image':
+                            yield {
+                                "type": "image",
+                                "source": block.get('source', {})
+                            }
+                        elif hasattr(block, 'type') and block.type == 'image':
+                            yield {
+                                "type": "image",
+                                "source": block.source if hasattr(block, 'source') else {}
+                            }
 
             elif msg_type == 'ResultMessage':
                 # Capture session ID
@@ -228,13 +264,14 @@ class MatlabAgent:
             prompt: User's message/query
 
         Returns:
-            Dict with 'text', 'tool_uses', 'session_id'
+            Dict with 'text', 'images', 'tool_uses', 'session_id'
         """
         if not self.client:
             raise RuntimeError("Agent not started. Call start() first.")
 
         result = {
             'text': '',
+            'images': [],
             'tool_uses': [],
             'session_id': self._session_id
         }
@@ -249,10 +286,27 @@ class MatlabAgent:
                     for block in message.content:
                         if hasattr(block, 'text'):
                             result['text'] += block.text
+                        elif hasattr(block, 'type') and block.type == 'image':
+                            result['images'].append({
+                                'source': block.source if hasattr(block, 'source') else {}
+                            })
                         elif hasattr(block, 'name'):  # Tool use block
                             result['tool_uses'].append({
                                 'name': block.name,
                                 'input': getattr(block, 'input', {})
+                            })
+
+            elif msg_type == 'ToolResult':
+                # Tool results may contain images
+                if hasattr(message, 'content'):
+                    for block in message.content:
+                        if isinstance(block, dict) and block.get('type') == 'image':
+                            result['images'].append({
+                                'source': block.get('source', {})
+                            })
+                        elif hasattr(block, 'type') and block.type == 'image':
+                            result['images'].append({
+                                'source': block.source if hasattr(block, 'source') else {}
                             })
 
             elif msg_type == 'ResultMessage':

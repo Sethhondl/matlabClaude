@@ -14,16 +14,58 @@ from claude_agent_sdk import tool
 from .matlab_engine import get_engine
 
 
+def _get_figure_handles(engine) -> set:
+    """Get set of current figure handles."""
+    try:
+        # Get all figure handles as a MATLAB array
+        handles_str = engine.eval("num2str(findall(0, 'Type', 'figure')')", capture_output=True)
+        if handles_str and handles_str.strip():
+            return set(int(float(h)) for h in handles_str.split() if h.strip())
+    except Exception:
+        pass
+    return set()
+
+
+def _capture_figure(engine, fig_handle: int, fmt: str = "png") -> Dict[str, Any]:
+    """Capture a figure as base64-encoded image."""
+    with tempfile.NamedTemporaryFile(suffix=f".{fmt}", delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        # Save the figure
+        engine.eval(f"saveas({fig_handle}, '{tmp_path}')", capture_output=False)
+
+        # Read and encode the image
+        with open(tmp_path, "rb") as f:
+            image_data = f.read()
+
+        base64_image = base64.b64encode(image_data).decode("utf-8")
+        media_type = "image/png" if fmt == "png" else "image/svg+xml"
+
+        return {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": base64_image
+            }
+        }
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
 @tool(
     "matlab_execute",
-    "Execute MATLAB code in the workspace and return the output. Use this to run MATLAB commands, create variables, perform calculations, etc.",
-    {"code": str, "capture_output": bool}
+    "Execute MATLAB code in the workspace and return the output. Use this to run MATLAB commands, create variables, perform calculations, etc. Any figures created will be automatically captured and returned as images.",
+    {"code": str, "capture_output": bool, "capture_figures": bool}
 )
 async def matlab_execute(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Execute MATLAB code and return the result."""
+    """Execute MATLAB code and return the result, including any new figures."""
     engine = get_engine()
     code = str(args.get("code", ""))
     capture = args.get("capture_output", True)
+    capture_figures = args.get("capture_figures", True)
 
     if not code.strip():
         return {
@@ -36,12 +78,29 @@ async def matlab_execute(args: Dict[str, Any]) -> Dict[str, Any]:
         if not engine.is_connected:
             engine.connect()
 
+        # Get existing figure handles before execution
+        existing_figs = _get_figure_handles(engine) if capture_figures else set()
+
+        # Execute the code
         result = engine.eval(code, capture_output=capture)
 
         if not result:
             result = "Code executed successfully (no output)"
 
-        return {"content": [{"type": "text", "text": result}]}
+        content = [{"type": "text", "text": result}]
+
+        # Capture any new figures
+        if capture_figures:
+            new_figs = _get_figure_handles(engine) - existing_figs
+            for fig_handle in sorted(new_figs):
+                try:
+                    image_block = _capture_figure(engine, fig_handle)
+                    content.append(image_block)
+                    content.append({"type": "text", "text": f"Figure {fig_handle} captured."})
+                except Exception as e:
+                    content.append({"type": "text", "text": f"Failed to capture figure {fig_handle}: {e}"})
+
+        return {"content": content}
 
     except Exception as e:
         return {
