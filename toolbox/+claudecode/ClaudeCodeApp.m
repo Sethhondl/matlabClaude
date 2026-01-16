@@ -2,7 +2,7 @@ classdef ClaudeCodeApp < handle
     %CLAUDECODEAPP Main entry point for Claude Code MATLAB integration
     %
     %   This class creates and manages the Claude Code assistant interface
-    %   as a docked panel in the MATLAB desktop using the ToolGroup API.
+    %   as a standalone window with an embedded HTML chat interface.
     %
     %   Example:
     %       app = claudecode.ClaudeCodeApp();
@@ -16,18 +16,17 @@ classdef ClaudeCodeApp < handle
     end
 
     properties (Access = private)
-        ToolGroup           % matlab.ui.internal.desktop.ToolGroup
-        ChatFigure          % Figure containing chat UI
-        ChatPanel           % Panel for chat UI
+        Figure              % Main uifigure window
         ChatController      % ChatUIController instance
         ProcessManager      % ClaudeProcessManager instance
         SimulinkBridge      % SimulinkBridge instance
-        IsOpen = false      % Whether the tool is open
+        IsOpen = false      % Whether the app is open
     end
 
     properties (Constant, Access = private)
-        TOOL_NAME = 'ClaudeCode'
-        TOOL_TITLE = 'Claude Code'
+        APP_TITLE = 'Claude Code'
+        DEFAULT_WIDTH = 450
+        DEFAULT_HEIGHT = 700
     end
 
     methods
@@ -45,11 +44,11 @@ classdef ClaudeCodeApp < handle
         end
 
         function launch(obj)
-            %LAUNCH Create and show the application as a docked panel
+            %LAUNCH Create and show the application window
 
-            if obj.IsOpen
+            if obj.IsOpen && ~isempty(obj.Figure) && isvalid(obj.Figure)
                 % Already open, bring to front
-                obj.show();
+                figure(obj.Figure);
                 return;
             end
 
@@ -59,7 +58,7 @@ classdef ClaudeCodeApp < handle
                 return;
             end
 
-            obj.createToolGroup();
+            obj.createWindow();
             obj.IsOpen = true;
         end
 
@@ -71,33 +70,30 @@ classdef ClaudeCodeApp < handle
                 obj.ProcessManager.stopProcess();
             end
 
-            % Close ToolGroup
-            if ~isempty(obj.ToolGroup) && isvalid(obj.ToolGroup)
-                try
-                    obj.ToolGroup.close();
-                catch
-                    % May already be closed
-                end
+            % Close figure
+            if ~isempty(obj.Figure) && isvalid(obj.Figure)
+                delete(obj.Figure);
             end
 
             obj.IsOpen = false;
         end
 
         function show(obj)
-            %SHOW Show the application
+            %SHOW Show the application window
 
-            if obj.IsOpen && ~isempty(obj.ToolGroup) && isvalid(obj.ToolGroup)
-                obj.ToolGroup.open();
+            if obj.IsOpen && ~isempty(obj.Figure) && isvalid(obj.Figure)
+                obj.Figure.Visible = 'on';
+                figure(obj.Figure);
             else
                 obj.launch();
             end
         end
 
         function hide(obj)
-            %HIDE Hide the application (minimize)
+            %HIDE Hide the application window
 
-            if ~isempty(obj.ToolGroup) && isvalid(obj.ToolGroup)
-                obj.ToolGroup.minimize();
+            if ~isempty(obj.Figure) && isvalid(obj.Figure)
+                obj.Figure.Visible = 'off';
             end
         end
     end
@@ -110,88 +106,41 @@ classdef ClaudeCodeApp < handle
             obj.SimulinkBridge = claudecode.SimulinkBridge();
         end
 
-        function createToolGroup(obj)
-            %CREATETOOLGROUP Create the ToolGroup and docked figure
+        function createWindow(obj)
+            %CREATEWINDOW Create the main application window
 
-            import matlab.ui.internal.desktop.*
+            % Calculate position (right side of screen)
+            screenSize = get(0, 'ScreenSize');
+            xPos = screenSize(3) - obj.DEFAULT_WIDTH - 50;
+            yPos = (screenSize(4) - obj.DEFAULT_HEIGHT) / 2;
 
-            % Create ToolGroup
-            obj.ToolGroup = ToolGroup(obj.TOOL_NAME, obj.TOOL_TITLE);
-
-            % Configure ToolGroup behavior
-            obj.ToolGroup.disableDataBrowser();
-
-            % Set close callback
-            addlistener(obj.ToolGroup, 'GroupAction', @(src, evt) obj.onToolGroupAction(evt));
-
-            % Create the chat figure
-            obj.createChatFigure();
-
-            % Add figure to ToolGroup
-            obj.ToolGroup.addFigure(obj.ChatFigure);
-
-            % Open the ToolGroup
-            obj.ToolGroup.open();
-
-            % Set default layout - dock to right side
-            drawnow;  % Ensure UI is rendered
-            obj.setDefaultLayout();
-        end
-
-        function createChatFigure(obj)
-            %CREATECHATFIGURE Create the figure containing the chat UI
-
-            % Create figure for the chat panel (must be regular figure, not uifigure)
-            obj.ChatFigure = figure(...
-                'Name', 'Chat', ...
-                'NumberTitle', 'off', ...
-                'MenuBar', 'none', ...
-                'ToolBar', 'none', ...
+            % Create uifigure
+            obj.Figure = uifigure(...
+                'Name', obj.APP_TITLE, ...
+                'Position', [xPos, yPos, obj.DEFAULT_WIDTH, obj.DEFAULT_HEIGHT], ...
                 'Color', [0.12 0.12 0.12], ...
-                'Visible', 'off', ...
-                'HandleVisibility', 'off', ...
-                'IntegerHandle', 'off');
+                'Resize', 'on', ...
+                'CloseRequestFcn', @(~,~) obj.onCloseRequest());
 
-            % Use the figure directly as the parent (no uipanel)
-            obj.ChatPanel = obj.ChatFigure;
-
-            % Create chat controller
+            % Create chat controller with HTML interface
             obj.ChatController = claudecode.ChatUIController(...
-                obj.ChatPanel, obj.ProcessManager);
+                obj.Figure, obj.ProcessManager);
 
             % Connect Simulink bridge
             obj.ChatController.SimulinkBridge = obj.SimulinkBridge;
         end
 
-        function setDefaultLayout(obj)
-            %SETDEFAULTLAYOUT Set the default docked layout
+        function onCloseRequest(obj)
+            %ONCLOSEREQUEST Handle window close
 
-            try
-                % Get the ToolGroup's peer (Java object)
-                group = obj.ToolGroup;
-
-                % Try to set preferred width for side docking
-                % This uses internal APIs and may vary by MATLAB version
-                pause(0.2);  % Allow UI to settle
-
-                % The figure will dock automatically
-                % User can then drag it to desired position
-
-            catch
-                % Layout customization is optional
-            end
+            obj.close();
         end
 
-        function onToolGroupAction(obj, evt)
-            %ONTOOLGROUPACTION Handle ToolGroup events
-
-            if strcmp(evt.EventData.EventType, 'CLOSING')
-                obj.close();
-            end
-        end
-
-        function showSetupInstructions(~)
+        function showSetupInstructions(obj)
             %SHOWSETUPINSTRUCTIONS Show instructions for installing Claude CLI
+
+            % Create a temporary visible figure for the dialog
+            tempFig = uifigure('Visible', 'on', 'Position', [100 100 1 1]);
 
             msg = sprintf(['Claude Code CLI not found.\n\n' ...
                 'Please install Claude Code from:\n' ...
@@ -201,7 +150,8 @@ classdef ClaudeCodeApp < handle
                 'If Claude is installed but MATLAB cannot find it,\n' ...
                 'you may need to set the full path in Settings.']);
 
-            msgbox(msg, 'Claude Code Not Found', 'warn');
+            uialert(tempFig, msg, 'Claude Code Not Found', 'Icon', 'warning', ...
+                'CloseFcn', @(~,~) delete(tempFig));
         end
 
         function settings = loadSettings(~)

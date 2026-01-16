@@ -96,7 +96,7 @@ function runCode(blockId) {
 
     // Send to MATLAB for execution
     if (window.matlabBridge) {
-        window.matlabBridge.sendEventToMATLAB('executeCode', {
+        window.matlabBridge.sendEventToMATLAB('runCode', {
             blockId: blockId,
             code: code,
             timestamp: Date.now()

@@ -24,8 +24,15 @@ function setup(htmlComponent) {
     // Store reference globally
     window.matlabBridge = htmlComponent;
 
-    // Listen for data changes from MATLAB
-    htmlComponent.addEventListener('DataChanged', handleMatlabData);
+    // Listen for events from MATLAB via sendEventToHTMLSource
+    // These are custom events with the event name as the type
+    htmlComponent.addEventListener('showMessage', handleShowMessage);
+    htmlComponent.addEventListener('startStreaming', handleStartStreaming);
+    htmlComponent.addEventListener('streamChunk', handleStreamChunk);
+    htmlComponent.addEventListener('endStreaming', handleEndStreaming);
+    htmlComponent.addEventListener('showError', handleShowError);
+    htmlComponent.addEventListener('updateStatus', handleUpdateStatus);
+    htmlComponent.addEventListener('codeResult', handleCodeResult);
 
     // Initialize UI event handlers
     initializeUI();
@@ -40,65 +47,66 @@ function setup(htmlComponent) {
 }
 
 /**
- * Handle data updates from MATLAB
- * @param {Event} event - The DataChanged event
+ * Handle showMessage event from MATLAB
  */
-function handleMatlabData(event) {
+function handleShowMessage(event) {
     const data = event.Data;
-
-    if (!data || !data.type) {
-        console.warn('Received data without type:', data);
-        return;
+    if (data.role === 'user') {
+        addUserMessage(data.content);
+    } else if (data.role === 'assistant') {
+        addAssistantMessage(data.content, true);
+    } else if (data.role === 'error') {
+        showError(data.content);
     }
+}
 
-    switch (data.type) {
-        case 'assistantMessage':
-            // Complete assistant message
-            addAssistantMessage(data.content, true);
-            setStreamingState(false);
-            break;
+/**
+ * Handle startStreaming event from MATLAB
+ */
+function handleStartStreaming(event) {
+    setStreamingState(true);
+    startStreamingMessage();
+}
 
-        case 'streamStart':
-            // Start of a new streamed response
-            setStreamingState(true);
-            startStreamingMessage();
-            break;
+/**
+ * Handle streamChunk event from MATLAB
+ */
+function handleStreamChunk(event) {
+    const data = event.Data;
+    appendToStreamingMessage(data.text);
+}
 
-        case 'streamChunk':
-            // Streaming text chunk
-            appendToStreamingMessage(data.content);
-            break;
+/**
+ * Handle endStreaming event from MATLAB
+ */
+function handleEndStreaming(event) {
+    finalizeStreamingMessage();
+    setStreamingState(false);
+}
 
-        case 'streamEnd':
-            // End of streaming
-            finalizeStreamingMessage();
-            setStreamingState(false);
-            break;
+/**
+ * Handle showError event from MATLAB
+ */
+function handleShowError(event) {
+    const data = event.Data;
+    showError(data.message);
+    setStreamingState(false);
+}
 
-        case 'codeResult':
-            // Result of code execution
-            showCodeResult(data.blockId, data.result, data.isError);
-            break;
+/**
+ * Handle updateStatus event from MATLAB
+ */
+function handleUpdateStatus(event) {
+    const data = event.Data;
+    updateStatus(data.status, data.message);
+}
 
-        case 'error':
-            // Error from MATLAB
-            showError(data.message);
-            setStreamingState(false);
-            break;
-
-        case 'status':
-            // Status update
-            updateStatus(data.status, data.message);
-            break;
-
-        case 'sessionId':
-            // Session ID update
-            window.chatState.sessionId = data.sessionId;
-            break;
-
-        default:
-            console.warn('Unknown data type:', data.type);
-    }
+/**
+ * Handle codeResult event from MATLAB
+ */
+function handleCodeResult(event) {
+    const data = event.Data;
+    showCodeResult(data.blockId, data.output, !data.success);
 }
 
 /**
@@ -153,9 +161,6 @@ function sendMessage() {
     const includeWorkspace = document.getElementById('include-workspace').checked;
     const includeSimulink = document.getElementById('include-simulink').checked;
 
-    // Add user message to UI
-    addUserMessage(message);
-
     // Clear input
     input.value = '';
     input.style.height = 'auto';
@@ -196,7 +201,7 @@ function setStreamingState(isStreaming) {
 
 /**
  * Update status indicator
- * @param {string} status - 'ready', 'loading', 'error'
+ * @param {string} status - 'ready', 'loading', 'streaming', 'error'
  * @param {string} message - Status message
  */
 function updateStatus(status, message) {
@@ -205,7 +210,7 @@ function updateStatus(status, message) {
 
     statusDot.classList.remove('loading', 'error');
 
-    if (status === 'loading') {
+    if (status === 'loading' || status === 'streaming') {
         statusDot.classList.add('loading');
     } else if (status === 'error') {
         statusDot.classList.add('error');
