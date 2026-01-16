@@ -133,12 +133,11 @@ classdef ClaudeCodeApp < handle
             pythonDir = fullfile(projectDir, 'python');
 
             % Add to Python path if not already there
-            pythonPath = py.sys.path;
-            pathList = cell(pythonPath);
-            pathList = cellfun(@char, pathList, 'UniformOutput', false);
+            P = py.sys.path;
+            pathList = string(P);
 
-            if ~any(strcmp(pathList, pythonDir))
-                py.sys.path.insert(int64(0), pythonDir);
+            if ~any(pathList == pythonDir)
+                insert(P, int64(0), pythonDir);
             end
         end
 
