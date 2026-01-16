@@ -17,6 +17,7 @@ classdef ChatUIController < handle
         ProcessManager      % Reference to ClaudeProcessManager
         CodeExecutor        % Reference to CodeExecutor
         WorkspaceProvider   % Reference to WorkspaceContextProvider
+        AgentManager        % Reference to AgentManager for custom agents
         HTMLComponent       % uihtml component
         IsReady = false     % Whether UI has initialized
 
@@ -44,6 +45,7 @@ classdef ChatUIController < handle
             obj.ProcessManager = processManager;
             obj.CodeExecutor = claudecode.CodeExecutor();
             obj.WorkspaceProvider = claudecode.WorkspaceContextProvider();
+            obj.AgentManager = claudecode.AgentManager();
 
             obj.createUI();
         end
@@ -183,29 +185,42 @@ classdef ChatUIController < handle
             % Add user message to history
             obj.addMessage('user', message);
 
-            % Build context
-            context = '';
-
-            if isfield(data, 'includeWorkspace') && data.includeWorkspace
-                workspaceContext = obj.WorkspaceProvider.getWorkspaceContext();
-                context = [context, workspaceContext, newline, newline];
-            end
-
-            if isfield(data, 'includeSimulink') && data.includeSimulink && ~isempty(obj.SimulinkBridge)
-                simulinkContext = obj.SimulinkBridge.buildSimulinkContext();
-                context = [context, simulinkContext, newline, newline];
-            end
-
             % Notify via event
             notify(obj, 'MessageSent');
 
-            % Send to Claude asynchronously
+            % Build context for agents and Claude
+            context = struct();
+            if isfield(data, 'includeWorkspace') && data.includeWorkspace
+                context.workspace = obj.WorkspaceProvider.getWorkspaceContext();
+            end
+            if isfield(data, 'includeSimulink') && data.includeSimulink && ~isempty(obj.SimulinkBridge)
+                context.simulink = obj.SimulinkBridge.buildSimulinkContext();
+            end
+
+            % Check if any custom agent can handle this message
+            [handled, response, agentName] = obj.AgentManager.dispatch(message, context);
+
+            if handled
+                % Agent handled it - show response directly
+                obj.sendAssistantMessage(response);
+                return;
+            end
+
+            % No agent handled it - send to Claude
+            contextStr = '';
+            if isfield(context, 'workspace')
+                contextStr = [contextStr, context.workspace, newline, newline];
+            end
+            if isfield(context, 'simulink')
+                contextStr = [contextStr, context.simulink, newline, newline];
+            end
+
             obj.startStreaming();
 
             obj.ProcessManager.sendMessageAsync(message, ...
                 @(chunk) obj.onStreamChunk(chunk), ...
                 @(result) obj.onMessageComplete(result), ...
-                'context', context);
+                'context', contextStr);
         end
 
         function onStreamChunk(obj, chunk)
