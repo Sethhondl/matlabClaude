@@ -98,6 +98,9 @@ class MatlabAgent:
         await agent.stop()
     """
 
+    # Compaction threshold - trigger summarization after this many turns
+    COMPACTION_THRESHOLD = 50
+
     def __init__(
         self,
         system_prompt: Optional[str] = None,
@@ -116,6 +119,10 @@ class MatlabAgent:
         self.max_turns = max_turns
         self.client: Optional[ClaudeSDKClient] = None
         self._session_id: Optional[str] = None
+
+        # Conversation memory tracking
+        self._turn_count = 0
+        self._conversation_summary = ""
 
         # Build tool list
         self._build_tools()
@@ -237,20 +244,28 @@ class MatlabAgent:
                         elif hasattr(block, 'name'):  # Tool use block
                             yield {"type": "tool_use", "name": block.name}
 
-            elif msg_type == 'ToolResult':
-                # Tool results may contain images
+            elif msg_type in ('ToolResult', 'McpToolResult', 'McpToolResultMessage'):
+                # Tool results may contain images from MCP tools
                 if hasattr(message, 'content'):
                     for block in message.content:
-                        if isinstance(block, dict) and block.get('type') == 'image':
-                            yield {
-                                "type": "image",
-                                "source": block.get('source', {})
-                            }
-                        elif hasattr(block, 'type') and block.type == 'image':
-                            yield {
-                                "type": "image",
-                                "source": block.source if hasattr(block, 'source') else {}
-                            }
+                        # Handle dict-style content blocks
+                        if isinstance(block, dict):
+                            if block.get('type') == 'image':
+                                yield {
+                                    "type": "image",
+                                    "source": block.get('source', {})
+                                }
+                            elif block.get('type') == 'text':
+                                yield {"type": "text", "text": block.get('text', '')}
+                        # Handle object-style content blocks
+                        elif hasattr(block, 'type'):
+                            if block.type == 'image':
+                                yield {
+                                    "type": "image",
+                                    "source": block.source if hasattr(block, 'source') else {}
+                                }
+                            elif block.type == 'text':
+                                yield {"type": "text", "text": getattr(block, 'text', '')}
 
             elif msg_type == 'ResultMessage':
                 # Capture session ID
@@ -296,18 +311,26 @@ class MatlabAgent:
                                 'input': getattr(block, 'input', {})
                             })
 
-            elif msg_type == 'ToolResult':
-                # Tool results may contain images
+            elif msg_type in ('ToolResult', 'McpToolResult', 'McpToolResultMessage'):
+                # Tool results may contain images from MCP tools
                 if hasattr(message, 'content'):
                     for block in message.content:
-                        if isinstance(block, dict) and block.get('type') == 'image':
-                            result['images'].append({
-                                'source': block.get('source', {})
-                            })
-                        elif hasattr(block, 'type') and block.type == 'image':
-                            result['images'].append({
-                                'source': block.source if hasattr(block, 'source') else {}
-                            })
+                        # Handle dict-style content blocks
+                        if isinstance(block, dict):
+                            if block.get('type') == 'image':
+                                result['images'].append({
+                                    'source': block.get('source', {})
+                                })
+                            elif block.get('type') == 'text':
+                                result['text'] += block.get('text', '')
+                        # Handle object-style content blocks
+                        elif hasattr(block, 'type'):
+                            if block.type == 'image':
+                                result['images'].append({
+                                    'source': block.source if hasattr(block, 'source') else {}
+                                })
+                            elif block.type == 'text':
+                                result['text'] += getattr(block, 'text', '')
 
             elif msg_type == 'ResultMessage':
                 if hasattr(message, 'session_id'):
@@ -321,36 +344,109 @@ class MatlabAgent:
         """Get the current session ID."""
         return self._session_id
 
+    @property
+    def turn_count(self) -> int:
+        """Get the current conversation turn count."""
+        return self._turn_count
 
-async def run_matlab_agent(prompt: str) -> str:
+    def increment_turn(self) -> None:
+        """Increment the turn count after a successful query.
+
+        This is called by the bridge after each message exchange.
+        When the turn count exceeds COMPACTION_THRESHOLD, the conversation
+        will be compacted on the next query.
+        """
+        self._turn_count += 1
+
+    async def compact_conversation(self) -> None:
+        """Compact the conversation by summarizing it.
+
+        This resets the agent with a summary of the conversation so far,
+        reducing context size while preserving key information.
+        """
+        if not self.client:
+            return
+
+        # Ask Claude to summarize the conversation
+        summary_prompt = (
+            "Please summarize our conversation so far in 2-3 paragraphs. "
+            "Focus on: 1) What MATLAB/Simulink tasks we've worked on, "
+            "2) Key decisions made, 3) Important context I'll need for future questions. "
+            "Be concise but preserve critical details."
+        )
+
+        try:
+            # Get summary from current conversation
+            await self.client.query(summary_prompt)
+            summary_text = ""
+
+            async for message in self.client.receive_response():
+                msg_type = type(message).__name__
+                if msg_type == 'AssistantMessage' and hasattr(message, 'content'):
+                    for block in message.content:
+                        if hasattr(block, 'text'):
+                            summary_text += block.text
+
+            # Store summary for new session
+            self._conversation_summary = summary_text
+
+            # Restart agent with summary as context
+            await self.stop()
+            self._turn_count = 0
+
+            # Modify system prompt to include summary
+            if summary_text:
+                self.system_prompt = (
+                    f"{MATLAB_SYSTEM_PROMPT}\n\n"
+                    f"## Previous Conversation Summary\n"
+                    f"The user and I have been working together. Here's a summary:\n\n"
+                    f"{summary_text}"
+                )
+
+            await self.start()
+
+        except Exception:
+            # If compaction fails, just continue with current conversation
+            pass
+
+    def reset_turn_count(self) -> None:
+        """Reset the turn count (called when conversation is cleared)."""
+        self._turn_count = 0
+        self._conversation_summary = ""
+
+
+async def run_matlab_agent(prompt: str) -> Dict[str, Any]:
     """Convenience function to run a single query.
 
     Args:
         prompt: User's message/query
 
     Returns:
-        Complete response text
+        Dict with 'text' and 'images' lists
     """
     agent = MatlabAgent()
     await agent.start()
 
     try:
-        text = ""
-        async for chunk in agent.query(prompt):
-            text += chunk
-        return text
+        result = {'text': '', 'images': []}
+        async for content in agent.query(prompt):
+            if content.get('type') == 'text':
+                result['text'] += content.get('text', '')
+            elif content.get('type') == 'image':
+                result['images'].append(content.get('source', {}))
+        return result
     finally:
         await agent.stop()
 
 
 # For synchronous usage (e.g., from MATLAB)
-def run_query_sync(prompt: str) -> str:
+def run_query_sync(prompt: str) -> Dict[str, Any]:
     """Synchronous wrapper for run_matlab_agent.
 
     Args:
         prompt: User's message/query
 
     Returns:
-        Complete response text
+        Dict with 'text' and 'images' lists
     """
     return asyncio.run(run_matlab_agent(prompt))

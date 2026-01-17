@@ -89,6 +89,38 @@ body {
     letter-spacing: -0.2px;
 }
 
+#header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+#clear-btn {
+    width: 32px;
+    height: 32px;
+    background-color: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+#clear-btn:hover {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+#clear-btn:active {
+    background-color: var(--error-color);
+    border-color: var(--error-color);
+    color: white;
+}
+
 #status-indicator {
     display: flex;
     align-items: center;
@@ -316,19 +348,6 @@ body {
     font-size: 12px;
 }
 
-/* System message display */
-.system-message {
-    background-color: var(--surface-secondary);
-    border: 1px solid var(--border-color);
-    color: var(--text-secondary);
-    padding: 8px 12px;
-    border-radius: 6px;
-    margin: 8px 0;
-    font-size: 12px;
-    font-style: italic;
-    text-align: center;
-}
-
 /* Inline code */
 .message-content code:not(pre code) {
     background-color: var(--code-bg);
@@ -374,6 +393,11 @@ body {
 
 .message-content a:hover {
     text-decoration: underline;
+}
+
+/* Streaming text container */
+.streaming-text {
+    /* Inherits message-content styling */
 }
 
 /* Image display in messages */

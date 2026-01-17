@@ -10,8 +10,10 @@ Uses the Claude Agent SDK for native tool support.
 from typing import Any, Dict, List, Optional
 import threading
 import asyncio
+import atexit
 
 from .agent_manager import AgentManager
+from .image_queue import poll_images, clear_images
 
 # Try to import the agent (requires claude-agent-sdk and Python 3.10+)
 try:
@@ -54,6 +56,7 @@ class MatlabBridge:
         # Agent SDK mode
         self._agent: Optional[MatlabAgent] = None
         self._agent_started = False
+        self._agent_running = False  # Track if agent is actively running
 
         # CLI fallback mode
         self._process_manager: Optional[ClaudeProcessManager] = None
@@ -66,11 +69,57 @@ class MatlabBridge:
         self._async_lock = threading.Lock()
         self._async_thread: Optional[threading.Thread] = None
 
+        # Persistent event loop for SDK mode (keeps agent alive between messages)
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop_thread: Optional[threading.Thread] = None
+
         # Initialize based on mode
         if self._use_sdk:
             self._agent = MatlabAgent()
+            self._start_persistent_loop()
         else:
             self._process_manager = ClaudeProcessManager()
+
+    def _start_persistent_loop(self) -> None:
+        """Start a persistent event loop in a background thread.
+
+        This keeps the SDK client alive between messages for conversation memory.
+        """
+        def run_loop():
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+            self._loop.run_forever()
+
+        self._loop_thread = threading.Thread(target=run_loop, daemon=True)
+        self._loop_thread.start()
+
+        # Give the loop time to start
+        import time
+        time.sleep(0.1)
+
+        # Register cleanup on exit
+        atexit.register(self._cleanup_loop)
+
+    def _cleanup_loop(self) -> None:
+        """Clean up the persistent event loop."""
+        if self._loop and self._loop.is_running():
+            # Stop the agent first
+            if self._agent_running and self._agent:
+                future = asyncio.run_coroutine_threadsafe(
+                    self._agent.stop(), self._loop
+                )
+                try:
+                    future.result(timeout=5)
+                except Exception:
+                    pass
+            self._loop.call_soon_threadsafe(self._loop.stop)
+
+    def _run_in_loop(self, coro):
+        """Run a coroutine in the persistent event loop and wait for result."""
+        if not self._loop or not self._loop.is_running():
+            raise RuntimeError("Event loop not running")
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result()
 
     @property
     def using_agent_sdk(self) -> bool:
@@ -156,8 +205,8 @@ class MatlabBridge:
         full_prompt = f"{context}\n\n{prompt}" if context else prompt
 
         try:
-            # Run async code in new event loop
-            response = asyncio.run(self._query_agent_async(full_prompt))
+            # Run async code in persistent event loop
+            response = self._run_in_loop(self._query_agent_async(full_prompt))
             return {
                 'text': response.get('text', ''),
                 'success': True,
@@ -175,15 +224,20 @@ class MatlabBridge:
             }
 
     async def _query_agent_async(self, prompt: str) -> Dict[str, Any]:
-        """Query agent asynchronously."""
+        """Query agent asynchronously.
+
+        Keeps the agent running between messages for conversation memory.
+        """
         if not self._agent:
             raise RuntimeError("Agent not initialized")
 
-        await self._agent.start()
-        try:
-            return await self._agent.query_full(prompt)
-        finally:
-            await self._agent.stop()
+        # Start agent lazily on first message
+        if not self._agent_running:
+            await self._agent.start()
+            self._agent_running = True
+
+        # Query without stopping - agent stays alive for conversation memory
+        return await self._agent.query_full(prompt)
 
     def start_async_message(
         self,
@@ -210,6 +264,9 @@ class MatlabBridge:
             self._async_chunks = []
             self._async_content = []
             self._async_complete = False
+
+        # Clear any stale images from previous requests
+        clear_images()
 
         if self._use_sdk:
             # Run SDK async in background thread
@@ -240,14 +297,22 @@ class MatlabBridge:
             )
 
     def _run_sdk_async(self, prompt: str, context: str) -> None:
-        """Run SDK query in background thread."""
+        """Run SDK query in background thread.
+
+        Keeps the agent running between messages for conversation memory.
+        Uses the persistent event loop to maintain SDK client state.
+        """
         full_prompt = f"{context}\n\n{prompt}" if context else prompt
 
         async def run():
             if not self._agent:
                 return
 
-            await self._agent.start()
+            # Start agent lazily on first message
+            if not self._agent_running:
+                await self._agent.start()
+                self._agent_running = True
+
             try:
                 text_parts = []
                 images = []
@@ -277,6 +342,14 @@ class MatlabBridge:
                         'session_id': self._agent.session_id or ''
                     }
                     self._async_complete = True
+
+                # Increment turn count for compaction tracking
+                self._agent.increment_turn()
+
+                # Check if we need to compact the conversation
+                if self._agent.turn_count >= self._agent.COMPACTION_THRESHOLD:
+                    await self._agent.compact_conversation()
+
             except Exception as e:
                 with self._async_lock:
                     self._async_response = {
@@ -287,10 +360,14 @@ class MatlabBridge:
                         'session_id': ''
                     }
                     self._async_complete = True
-            finally:
-                await self._agent.stop()
+                # Don't stop agent on error - let it recover
 
-        asyncio.run(run())
+        # Submit to persistent event loop (non-blocking)
+        if self._loop and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(run(), self._loop)
+        else:
+            # Fallback if loop not available
+            asyncio.run(run())
 
     def poll_async_chunks(self) -> List[str]:
         """Poll for new async text chunks (backward compatible).
@@ -315,7 +392,13 @@ class MatlabBridge:
         with self._async_lock:
             content = self._async_content.copy()
             self._async_content = []
-            return content
+
+        # Also poll the direct image queue (for images from MCP tools)
+        direct_images = poll_images()
+        for img in direct_images:
+            content.append(img)
+
+        return content
 
     def is_async_complete(self) -> bool:
         """Check if async message is complete."""
@@ -359,3 +442,40 @@ class MatlabBridge:
         elif self._process_manager:
             return self._process_manager.session_id
         return ''
+
+    def clear_conversation(self) -> None:
+        """Clear conversation history and reset the agent.
+
+        This should be called when the user clicks the "Clear" button
+        to start a fresh conversation.
+        """
+        if self._use_sdk and self._agent:
+            if self._loop and self._loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self._reset_agent_async(), self._loop
+                )
+                try:
+                    future.result(timeout=10)
+                except Exception:
+                    pass
+            else:
+                asyncio.run(self._reset_agent_async())
+
+    async def _reset_agent_async(self) -> None:
+        """Reset the agent asynchronously."""
+        if self._agent_running and self._agent:
+            await self._agent.stop()
+            self._agent_running = False
+
+        # Create fresh agent instance
+        self._agent = MatlabAgent()
+
+    def get_conversation_turns(self) -> int:
+        """Get the current conversation turn count.
+
+        Returns:
+            Number of turns in the current conversation.
+        """
+        if self._use_sdk and self._agent:
+            return self._agent.turn_count
+        return 0

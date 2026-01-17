@@ -82,17 +82,24 @@ function startStreamingMessage() {
     contentDiv.className = 'message-content';
     contentDiv.id = 'streaming-content';
 
+    // Container for text content (separate from images)
+    const textDiv = document.createElement('div');
+    textDiv.className = 'streaming-text';
+    textDiv.id = 'streaming-text';
+    contentDiv.appendChild(textDiv);
+
     // Add streaming cursor
     const cursor = document.createElement('span');
     cursor.className = 'streaming-cursor';
     cursor.id = 'streaming-cursor';
-    contentDiv.appendChild(cursor);
+    textDiv.appendChild(cursor);
 
     messageDiv.appendChild(contentDiv);
     history.appendChild(messageDiv);
 
     window.chatState.currentStreamMessage = {
         content: '',
+        images: [],
         element: messageDiv
     };
 
@@ -110,13 +117,14 @@ function appendToStreamingMessage(chunk) {
 
     window.chatState.currentStreamMessage.content += chunk;
 
-    const contentDiv = document.getElementById('streaming-content');
-    if (contentDiv) {
-        // Parse and render current content
+    // Update only the text div, preserving images in the content div
+    const textDiv = document.getElementById('streaming-text');
+    if (textDiv) {
+        // Parse and render current text content
         const parsed = parseMarkdown(window.chatState.currentStreamMessage.content);
 
         // Keep cursor
-        contentDiv.innerHTML = parsed + '<span class="streaming-cursor"></span>';
+        textDiv.innerHTML = parsed + '<span class="streaming-cursor"></span>';
 
         scrollToBottom();
     }
@@ -131,23 +139,33 @@ function finalizeStreamingMessage() {
 
     const messageDiv = document.getElementById('streaming-message');
     const contentDiv = document.getElementById('streaming-content');
+    const textDiv = document.getElementById('streaming-text');
 
     if (messageDiv && contentDiv) {
         // Remove streaming indicators
         messageDiv.removeAttribute('id');
         contentDiv.removeAttribute('id');
 
-        // Final render without cursor
-        contentDiv.innerHTML = parseMarkdown(streamMsg.content);
+        if (textDiv) {
+            textDiv.removeAttribute('id');
+
+            // Remove the streaming cursor
+            const cursor = textDiv.querySelector('.streaming-cursor');
+            if (cursor) {
+                cursor.remove();
+            }
+        }
 
         // Process code blocks
         processCodeBlocks(messageDiv);
     }
 
-    // Store in state
+    // Store in state (including info about images)
     window.chatState.messages.push({
         role: 'assistant',
         content: streamMsg.content,
+        images: streamMsg.images || [],
+        hasImages: streamMsg.images && streamMsg.images.length > 0,
         timestamp: Date.now()
     });
 
@@ -310,20 +328,24 @@ function appendImageToStreamingMessage(imageData) {
         startStreamingMessage();
     }
 
-    const contentDiv = document.getElementById('streaming-content');
-    if (contentDiv) {
-        // Remove streaming cursor temporarily
-        const cursor = contentDiv.querySelector('.streaming-cursor');
+    // Track image in state
+    if (window.chatState.currentStreamMessage.images) {
+        window.chatState.currentStreamMessage.images.push(imageData);
+    }
 
+    const contentDiv = document.getElementById('streaming-content');
+    const textDiv = document.getElementById('streaming-text');
+
+    if (contentDiv) {
         // Create image container
         const imageHTML = createImageHTML(imageData);
         const imageContainer = document.createElement('div');
         imageContainer.className = 'message-image-container';
         imageContainer.innerHTML = imageHTML;
 
-        // Insert before cursor or at end
-        if (cursor) {
-            contentDiv.insertBefore(imageContainer, cursor);
+        // Insert image before the text div (images appear above text)
+        if (textDiv) {
+            contentDiv.insertBefore(imageContainer, textDiv);
         } else {
             contentDiv.appendChild(imageContainer);
         }

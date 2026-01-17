@@ -35,7 +35,6 @@ function setup(htmlComponent) {
     htmlComponent.addEventListener('codeResult', handleCodeResult);
     htmlComponent.addEventListener('showImage', handleShowImage);
     htmlComponent.addEventListener('setTheme', handleSetTheme);
-    htmlComponent.addEventListener('clearHistory', handleClearHistory);
 
     // Initialize UI event handlers
     initializeUI();
@@ -60,22 +59,7 @@ function handleShowMessage(event) {
         addAssistantMessage(data.content, true);
     } else if (data.role === 'error') {
         showError(data.content);
-    } else if (data.role === 'system') {
-        addSystemMessage(data.content);
     }
-}
-
-/**
- * Add a system message to the chat history
- * @param {string} content - The system message content
- */
-function addSystemMessage(content) {
-    const history = document.getElementById('message-history');
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'system-message';
-    messageDiv.textContent = content;
-    history.appendChild(messageDiv);
-    scrollToBottom();
 }
 
 /**
@@ -143,12 +127,44 @@ function initializeUI() {
     const sendBtn = document.getElementById('send-btn');
     sendBtn.addEventListener('click', sendMessage);
 
+    // Clear button
+    const clearBtn = document.getElementById('clear-btn');
+    clearBtn.addEventListener('click', clearChat);
+
     // Text input
     const userInput = document.getElementById('user-input');
     userInput.addEventListener('keydown', handleKeyDown);
 
     // Auto-resize textarea
     userInput.addEventListener('input', autoResizeTextarea);
+}
+
+/**
+ * Clear the chat history and reset conversation
+ */
+function clearChat() {
+    // Don't allow clearing while streaming
+    if (window.chatState.isStreaming) {
+        return;
+    }
+
+    // Clear message history in UI
+    const history = document.getElementById('message-history');
+    history.innerHTML = '';
+
+    // Reset local state
+    window.chatState.messages = [];
+    window.chatState.currentStreamMessage = null;
+
+    // Show welcome message again
+    showWelcomeMessage();
+
+    // Notify MATLAB to clear Python conversation state
+    if (window.matlabBridge) {
+        window.matlabBridge.sendEventToMATLAB('clearChat', {
+            timestamp: Date.now()
+        });
+    }
 }
 
 /**
@@ -305,31 +321,4 @@ function setTheme(theme) {
     } else {
         document.documentElement.removeAttribute('data-theme');
     }
-}
-
-/**
- * Handle clearHistory event from MATLAB
- */
-function handleClearHistory(event) {
-    clearMessageHistory();
-}
-
-/**
- * Clear the message history and reset chat state
- */
-function clearMessageHistory() {
-    const history = document.getElementById('message-history');
-
-    // Clear all messages
-    history.innerHTML = '';
-
-    // Reset chat state
-    window.chatState.messages = [];
-    window.chatState.currentStreamMessage = null;
-
-    // Show welcome message again
-    showWelcomeMessage();
-
-    // Reset status
-    updateStatus('ready', 'Ready');
 }

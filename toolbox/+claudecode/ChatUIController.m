@@ -5,36 +5,27 @@ classdef ChatUIController < handle
     %   HTML webview, handling bidirectional communication between the UI and MATLAB.
     %   Core logic (Claude communication, agents) is handled by Python.
     %
-    %   Supports both uifigure (App Designer) and standard figure (ToolGroup) parents.
-    %
     %   Example:
     %       controller = claudecode.ChatUIController(parentFigure, bridge);
 
     properties (Access = public)
         SimulinkBridge      % Reference to SimulinkBridge for model context
         GitProvider         % Reference to GitContextProvider
-        StreamingStateChangedFcn  % Callback for streaming state changes
     end
 
     properties (Access = private)
-        ParentFigure        % Figure containing the UI (uifigure or standard figure)
-        ParentPanel         % uipanel container (for standard figure)
+        ParentFigure        % uifigure containing the UI
         PythonBridge        % Python MatlabBridge instance
         CodeExecutor        % Reference to CodeExecutor (MATLAB-side)
         WorkspaceProvider   % Reference to WorkspaceContextProvider
         HTMLComponent       % uihtml component
         IsReady = false     % Whether UI has initialized
         PollingTimer        % Timer for polling async responses
-        IsUIFigure = true   % Whether parent is a uifigure
 
         % State
         Messages = {}       % Cell array of message structs
         IsStreaming = false % Whether currently streaming
         CurrentStreamText = '' % Accumulated text during streaming
-
-        % Context toggles (can be set from toolstrip)
-        IncludeWorkspace = false
-        IncludeSimulink = false
     end
 
     events
@@ -48,16 +39,13 @@ classdef ChatUIController < handle
             %
             %   controller = ChatUIController(parent, pythonBridge)
             %
-            %   parent: uifigure or standard figure to contain the chat UI
+            %   parent: uifigure to contain the chat UI
             %   pythonBridge: Python MatlabBridge instance
 
             obj.ParentFigure = parent;
             obj.PythonBridge = pythonBridge;
             obj.CodeExecutor = claudecode.CodeExecutor();
             obj.WorkspaceProvider = claudecode.WorkspaceContextProvider();
-
-            % Detect figure type
-            obj.IsUIFigure = obj.detectFigureType(parent);
 
             obj.createUI();
         end
@@ -72,62 +60,18 @@ classdef ChatUIController < handle
             end
         end
 
-        function clearHistory(obj)
-            %CLEARHISTORY Clear the chat message history
-
-            obj.Messages = {};
-            obj.sendToJS('clearHistory', struct());
-        end
-
-        function stopCurrentRequest(obj)
-            %STOPCURRENTREQUEST Stop the current streaming request
-
-            if obj.IsStreaming
-                % Stop polling timer
-                if ~isempty(obj.PollingTimer) && isvalid(obj.PollingTimer)
-                    stop(obj.PollingTimer);
-                    delete(obj.PollingTimer);
-                    obj.PollingTimer = [];
-                end
-
-                obj.endStreaming();
-                obj.sendToJS('showMessage', struct('role', 'system', 'content', 'Request stopped by user.'));
-            end
-        end
-
-        function setIncludeWorkspace(obj, value)
-            %SETINCLUDEWORKSPACE Set the include workspace toggle
-
-            obj.IncludeWorkspace = value;
-        end
-
-        function setIncludeSimulink(obj, value)
-            %SETINCLUDESIMULINK Set the include Simulink toggle
-
-            obj.IncludeSimulink = value;
-        end
-
-        function setTheme(obj, theme)
-            %SETTHEME Set the chat UI theme
-
-            if strcmpi(theme, 'auto')
-                theme = obj.detectMatlabTheme();
-            end
-            obj.sendToJS('setTheme', struct('theme', theme));
-        end
-
         function sendAssistantMessage(obj, content)
             %SENDASSISTANTMESSAGE Display a complete assistant message
 
             obj.addMessage('assistant', content);
-            obj.setStreamingState(false);
+            obj.IsStreaming = false;
             obj.updateStatus('ready', 'Ready');
         end
 
         function startStreaming(obj)
             %STARTSTREAMING Signal start of streaming response
 
-            obj.setStreamingState(true);
+            obj.IsStreaming = true;
             obj.CurrentStreamText = '';
             obj.updateStatus('streaming', 'Claude is thinking...');
             obj.sendToJS('startStreaming', struct());
@@ -148,7 +92,7 @@ classdef ChatUIController < handle
                 msg = struct('role', 'assistant', 'content', obj.CurrentStreamText, 'timestamp', now);
                 obj.Messages{end+1} = msg;
             end
-            obj.setStreamingState(false);
+            obj.IsStreaming = false;
             obj.CurrentStreamText = '';
             obj.updateStatus('ready', 'Ready');
             obj.sendToJS('endStreaming', struct());
@@ -158,7 +102,7 @@ classdef ChatUIController < handle
             %SENDERROR Display an error message
 
             obj.addMessage('error', message);
-            obj.setStreamingState(false);
+            obj.IsStreaming = false;
             obj.updateStatus('error', 'Error occurred');
             obj.sendToJS('showError', struct('message', message));
         end
@@ -171,23 +115,6 @@ classdef ChatUIController < handle
     end
 
     methods (Access = private)
-        function isUIFig = detectFigureType(~, parent)
-            %DETECTFIGURETYPE Detect if parent is a uifigure, uipanel, or standard figure
-
-            try
-                % Check if it's a uipanel (common when using toolbar mode)
-                if isa(parent, 'matlab.ui.container.Panel')
-                    isUIFig = true;  % uipanel in uifigure context
-                    return;
-                end
-
-                % uifigure has 'AutoResizeChildren' property
-                isUIFig = isprop(parent, 'AutoResizeChildren');
-            catch
-                isUIFig = false;
-            end
-        end
-
         function createUI(obj)
             %CREATEUI Create the uihtml component
 
@@ -196,88 +123,25 @@ classdef ChatUIController < handle
             toolboxDir = fileparts(fileparts(thisFile));
             htmlPath = fullfile(toolboxDir, 'chat_ui', 'index.html');
 
-            if obj.IsUIFigure
-                % UIFigure or uipanel context
-                parent = obj.ParentFigure;
+            % Use a grid layout to handle auto-resizing (uihtml doesn't support Units)
+            grid = uigridlayout(obj.ParentFigure, [1 1], ...
+                'Padding', [0 0 0 0], ...
+                'RowHeight', {'1x'}, ...
+                'ColumnWidth', {'1x'});
 
-                % Get parent size
-                parentPos = parent.Position;
-
-                % For uipanel, position is in normalized units by default
-                % Convert to pixels if needed
-                if isa(parent, 'matlab.ui.container.Panel')
-                    % Get pixel position of panel
-                    parentPos = getpixelposition(parent);
-                else
-                    % Disable AutoResizeChildren to allow SizeChangedFcn to work
-                    if isprop(parent, 'AutoResizeChildren')
-                        parent.AutoResizeChildren = 'off';
-                    end
-                end
-
-                obj.HTMLComponent = uihtml(parent, ...
-                    'HTMLSource', htmlPath, ...
-                    'Position', [0 0 parentPos(3) parentPos(4)], ...
-                    'HTMLEventReceivedFcn', @(src, evt) obj.handleJSEvent(evt));
-
-                % Set up resize callback on the parent
-                if isprop(parent, 'SizeChangedFcn')
-                    parent.SizeChangedFcn = @(~,~) obj.onFigureResize();
-                end
-            else
-                % Standard figure: Create uipanel first, then uihtml inside it
-                obj.ParentPanel = uipanel(obj.ParentFigure, ...
-                    'Units', 'normalized', ...
-                    'Position', [0 0 1 1], ...
-                    'BorderType', 'none');
-
-                obj.HTMLComponent = uihtml(obj.ParentPanel, ...
-                    'HTMLSource', htmlPath, ...
-                    'Position', [0 0 obj.ParentPanel.Position(3) obj.ParentPanel.Position(4)], ...
-                    'HTMLEventReceivedFcn', @(src, evt) obj.handleJSEvent(evt));
-
-                % Set up resize callback for standard figure
-                obj.ParentFigure.SizeChangedFcn = @(~,~) obj.onFigureResize();
-            end
+            % Create uihtml component inside the grid - it will auto-fill
+            obj.HTMLComponent = uihtml(grid, ...
+                'HTMLSource', htmlPath, ...
+                'HTMLEventReceivedFcn', @(src, evt) obj.handleJSEvent(evt));
 
             obj.IsReady = true;
         end
 
         function onFigureResize(obj)
-            %ONFIGURERESIZE Handle figure/panel resize
+            %ONFIGURERESIZE Handle figure resize
 
             if ~isempty(obj.HTMLComponent) && isvalid(obj.HTMLComponent)
-                if obj.IsUIFigure
-                    % Get parent size (works for both uifigure and uipanel)
-                    parent = obj.ParentFigure;
-                    if isa(parent, 'matlab.ui.container.Panel')
-                        parentPos = getpixelposition(parent);
-                    else
-                        parentPos = parent.Position;
-                    end
-                    obj.HTMLComponent.Position = [0 0 parentPos(3) parentPos(4)];
-                else
-                    % For standard figure with panel, get panel pixel size
-                    if ~isempty(obj.ParentPanel) && isvalid(obj.ParentPanel)
-                        figPos = getpixelposition(obj.ParentFigure);
-                        obj.HTMLComponent.Position = [0 0 figPos(3) figPos(4)];
-                    end
-                end
-            end
-        end
-
-        function setStreamingState(obj, isStreaming)
-            %SETSTREAMINGSTATE Update streaming state and notify
-
-            obj.IsStreaming = isStreaming;
-
-            % Notify via callback if set
-            if ~isempty(obj.StreamingStateChangedFcn)
-                try
-                    obj.StreamingStateChangedFcn(isStreaming);
-                catch
-                    % Callback may have been deleted
-                end
+                obj.HTMLComponent.Position = [0 0 obj.ParentFigure.Position(3) obj.ParentFigure.Position(4)];
             end
         end
 
@@ -303,6 +167,9 @@ classdef ChatUIController < handle
 
                     case 'uiReady'
                         obj.onUIReady();
+
+                    case 'clearChat'
+                        obj.onClearChat();
 
                     otherwise
                         warning('ChatUIController:UnknownEvent', ...
@@ -333,24 +200,13 @@ classdef ChatUIController < handle
             % Notify via event
             notify(obj, 'MessageSent');
 
-            % Determine context inclusion (prefer toolstrip settings, fallback to UI data)
-            includeWorkspace = obj.IncludeWorkspace;
-            includeSimulink = obj.IncludeSimulink;
-
-            if isfield(data, 'includeWorkspace')
-                includeWorkspace = includeWorkspace || data.includeWorkspace;
-            end
-            if isfield(data, 'includeSimulink')
-                includeSimulink = includeSimulink || data.includeSimulink;
-            end
-
             % Build context for agents
             context = py.dict();
-            if includeWorkspace
+            if isfield(data, 'includeWorkspace') && data.includeWorkspace
                 workspaceCtx = obj.WorkspaceProvider.getWorkspaceContext();
                 context{'workspace'} = workspaceCtx;
             end
-            if includeSimulink && ~isempty(obj.SimulinkBridge)
+            if isfield(data, 'includeSimulink') && data.includeSimulink && ~isempty(obj.SimulinkBridge)
                 simulinkCtx = obj.SimulinkBridge.buildSimulinkContext();
                 context{'simulink'} = simulinkCtx;
             end
@@ -371,11 +227,11 @@ classdef ChatUIController < handle
             contextStr = [contextStr, newline, newline, obj.WorkspaceProvider.getEditorContext()];
 
             % Optionally include workspace context
-            if includeWorkspace
+            if isfield(data, 'includeWorkspace') && data.includeWorkspace
                 contextStr = [contextStr, newline, newline, obj.WorkspaceProvider.getWorkspaceContext()];
             end
             % Optionally include Simulink context
-            if includeSimulink && ~isempty(obj.SimulinkBridge)
+            if isfield(data, 'includeSimulink') && data.includeSimulink && ~isempty(obj.SimulinkBridge)
                 contextStr = [contextStr, newline, newline, obj.SimulinkBridge.buildSimulinkContext()];
             end
 
@@ -532,6 +388,28 @@ classdef ChatUIController < handle
             end
         end
 
+        function onClearChat(obj)
+            %ONCLEARCHAT Handle clear chat request
+
+            % Clear local message history
+            obj.Messages = {};
+            obj.CurrentStreamText = '';
+            obj.IsStreaming = false;
+
+            % Clear Python conversation state (this resets the agent)
+            if ~isempty(obj.PythonBridge)
+                try
+                    obj.PythonBridge.clear_conversation();
+                catch ME
+                    warning('ChatUIController:ClearError', ...
+                        'Error clearing Python conversation: %s', ME.message);
+                end
+            end
+
+            % Update status
+            obj.updateStatus('ready', 'Ready');
+        end
+
         function onUIReady(obj)
             %ONUIREADY Handle UI ready signal
 
@@ -598,10 +476,26 @@ classdef ChatUIController < handle
             end
         end
 
-        function s = pyDictToStruct(~, pyDict)
-            %PYDICTTOSTRUCT Convert Python dict to MATLAB struct
+        function s = pyDictToStruct(obj, pyDict)
+            %PYDICTTOSTRUCT Convert Python dict to MATLAB struct (recursively)
+
+            if ~isa(pyDict, 'py.dict')
+                s = pyDict;
+                return;
+            end
 
             s = struct(pyDict);
+
+            % Recursively convert nested py.dict fields
+            fields = fieldnames(s);
+            for i = 1:length(fields)
+                fieldVal = s.(fields{i});
+                if isa(fieldVal, 'py.dict')
+                    s.(fields{i}) = obj.pyDictToStruct(fieldVal);
+                elseif isa(fieldVal, 'py.str')
+                    s.(fields{i}) = char(fieldVal);
+                end
+            end
         end
     end
 end

@@ -12,6 +12,7 @@ from typing import Any, Dict
 
 from claude_agent_sdk import tool
 from .matlab_engine import get_engine
+from .image_queue import push_image
 
 
 def _get_figure_handles(engine) -> set:
@@ -26,14 +27,35 @@ def _get_figure_handles(engine) -> set:
     return set()
 
 
-def _capture_figure(engine, fig_handle: int, fmt: str = "png") -> Dict[str, Any]:
-    """Capture a figure as base64-encoded image."""
+def _capture_figure(engine, fig_handle: int, fmt: str = "png", close_after: bool = True) -> Dict[str, Any]:
+    """Capture a figure as base64-encoded image.
+
+    Args:
+        engine: MATLAB engine instance
+        fig_handle: Handle of the figure to capture
+        fmt: Image format ('png' or 'svg')
+        close_after: Whether to close the figure after capturing
+
+    Returns:
+        Dict with image content block
+    """
     with tempfile.NamedTemporaryFile(suffix=f".{fmt}", delete=False) as tmp:
         tmp_path = tmp.name
 
     try:
-        # Save the figure
-        engine.eval(f"saveas({fig_handle}, '{tmp_path}')", capture_output=False)
+        # Use print command for better quality output
+        if fmt == "png":
+            # Use print with higher resolution for better quality
+            engine.eval(
+                f"print({fig_handle}, '-dpng', '-r150', '{tmp_path}')",
+                capture_output=False
+            )
+        else:
+            engine.eval(f"saveas({fig_handle}, '{tmp_path}')", capture_output=False)
+
+        # Close the figure to avoid cluttering the desktop
+        if close_after:
+            engine.eval(f"close({fig_handle});", capture_output=False)
 
         # Read and encode the image
         with open(tmp_path, "rb") as f:
@@ -42,7 +64,7 @@ def _capture_figure(engine, fig_handle: int, fmt: str = "png") -> Dict[str, Any]
         base64_image = base64.b64encode(image_data).decode("utf-8")
         media_type = "image/png" if fmt == "png" else "image/svg+xml"
 
-        return {
+        image_block = {
             "type": "image",
             "source": {
                 "type": "base64",
@@ -50,15 +72,82 @@ def _capture_figure(engine, fig_handle: int, fmt: str = "png") -> Dict[str, Any]
                 "data": base64_image
             }
         }
+
+        # Push to the image queue for direct delivery to UI
+        push_image(image_block)
+
+        return image_block
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
 
+def _format_matrix_output(engine, output: str) -> str:
+    """Format matrix output for nicer display.
+
+    Attempts to detect matrix-like output and format it as a readable table.
+    """
+    if not output or not output.strip():
+        return output
+
+    lines = output.strip().split('\n')
+
+    # Check if this looks like a matrix output (multiple lines of numbers)
+    # MATLAB matrices typically have consistent column spacing
+    is_matrix = True
+    matrix_rows = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # Try to parse as space-separated numbers
+        parts = line.split()
+        row_values = []
+        for part in parts:
+            try:
+                # Handle various number formats
+                val = float(part.replace('i', 'j'))  # complex numbers
+                row_values.append(part)
+            except ValueError:
+                is_matrix = False
+                break
+
+        if is_matrix and row_values:
+            matrix_rows.append(row_values)
+
+    # If we detected a matrix with multiple rows and consistent columns
+    if is_matrix and len(matrix_rows) > 1:
+        # Check for consistent column count
+        col_counts = [len(row) for row in matrix_rows]
+        if len(set(col_counts)) == 1 and col_counts[0] > 1:
+            # Format as aligned columns
+            num_cols = col_counts[0]
+
+            # Find max width for each column
+            col_widths = []
+            for col in range(num_cols):
+                max_width = max(len(row[col]) for row in matrix_rows)
+                col_widths.append(max_width)
+
+            # Build formatted output
+            formatted_lines = []
+            for row in matrix_rows:
+                formatted_row = "  ".join(
+                    val.rjust(col_widths[i]) for i, val in enumerate(row)
+                )
+                formatted_lines.append(f"    {formatted_row}")
+
+            return "\n".join(formatted_lines)
+
+    return output
+
+
 @tool(
     "matlab_execute",
     "Execute MATLAB code in the workspace and return the output. Use this to run MATLAB commands, create variables, perform calculations, etc. Any figures created will be automatically captured and returned as images.",
-    {"code": str, "capture_output": bool, "capture_figures": bool}
+    {"code": str, "capture_output": bool, "capture_figures": bool, "format_output": bool}
 )
 async def matlab_execute(args: Dict[str, Any]) -> Dict[str, Any]:
     """Execute MATLAB code and return the result, including any new figures."""
@@ -66,6 +155,7 @@ async def matlab_execute(args: Dict[str, Any]) -> Dict[str, Any]:
     code = str(args.get("code", ""))
     capture = args.get("capture_output", True)
     capture_figures = args.get("capture_figures", True)
+    format_output = args.get("format_output", True)
 
     if not code.strip():
         return {
@@ -86,6 +176,9 @@ async def matlab_execute(args: Dict[str, Any]) -> Dict[str, Any]:
 
         if not result:
             result = "Code executed successfully (no output)"
+        elif format_output:
+            # Try to format matrix output nicely
+            result = _format_matrix_output(engine, result)
 
         content = [{"type": "text", "text": result}]
 
@@ -94,9 +187,8 @@ async def matlab_execute(args: Dict[str, Any]) -> Dict[str, Any]:
             new_figs = _get_figure_handles(engine) - existing_figs
             for fig_handle in sorted(new_figs):
                 try:
-                    image_block = _capture_figure(engine, fig_handle)
+                    image_block = _capture_figure(engine, fig_handle, close_after=True)
                     content.append(image_block)
-                    content.append({"type": "text", "text": f"Figure {fig_handle} captured."})
                 except Exception as e:
                     content.append({"type": "text", "text": f"Failed to capture figure {fig_handle}: {e}"})
 
@@ -210,8 +302,11 @@ async def matlab_plot(args: Dict[str, Any]) -> Dict[str, Any]:
             tmp_path = tmp.name
 
         try:
-            # Save the figure
-            engine.eval(f"saveas(gcf, '{tmp_path}')", capture_output=False)
+            # Use print for higher quality output
+            if fmt == "png":
+                engine.eval(f"print(gcf, '-dpng', '-r150', '{tmp_path}')", capture_output=False)
+            else:
+                engine.eval(f"saveas(gcf, '{tmp_path}')", capture_output=False)
             engine.eval("close(gcf);", capture_output=False)
 
             # Read and encode the image
@@ -221,16 +316,21 @@ async def matlab_plot(args: Dict[str, Any]) -> Dict[str, Any]:
             base64_image = base64.b64encode(image_data).decode("utf-8")
             media_type = "image/png" if fmt == "png" else "image/svg+xml"
 
+            image_block = {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": base64_image
+                }
+            }
+
+            # Push to the image queue for direct delivery to UI
+            push_image(image_block)
+
             return {
                 "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": base64_image
-                        }
-                    },
+                    image_block,
                     {"type": "text", "text": "Plot generated successfully."}
                 ]
             }
