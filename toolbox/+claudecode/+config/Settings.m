@@ -10,11 +10,8 @@ classdef Settings < handle
 
     properties
         % UI Settings
-        theme = 'dark'                      % 'dark', 'light', or 'auto'
+        theme = 'dark'                      % 'dark' or 'light'
         fontSize = 14                        % Chat font size
-        useToolGroup = true                  % Use ToolGroup API for desktop integration
-        showViewTab = false                  % Show View tab in toolstrip
-        dockWindow = true                    % Dock window (fallback mode only)
 
         % Context Settings
         autoIncludeWorkspace = false        % Auto-include workspace in prompts

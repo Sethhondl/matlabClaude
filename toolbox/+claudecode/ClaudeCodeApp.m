@@ -2,8 +2,9 @@ classdef ClaudeCodeApp < handle
     %CLAUDECODEAPP Main entry point for Claude Code MATLAB integration
     %
     %   This class creates and manages the Claude Code assistant interface
-    %   with an embedded HTML chat interface. Uses MATLAB's ToolGroup API
-    %   for professional desktop integration with a toolstrip ribbon.
+    %   with an embedded HTML chat interface. By default, the window docks
+    %   into the MATLAB desktop as a side panel that can be tiled alongside
+    %   the Editor and other tools.
     %
     %   Example:
     %       app = claudecode.ClaudeCodeApp();
@@ -12,25 +13,24 @@ classdef ClaudeCodeApp < handle
     %   Or use the convenience function:
     %       claudecode.launch()
     %
-    %   The app integrates with the MATLAB desktop via ToolGroup, providing
-    %   a toolstrip ribbon with chat controls, context toggles, and settings.
+    %   Docking controls:
+    %       app.dock()      - Dock into MATLAB desktop
+    %       app.undock()    - Undock to floating window
+    %       app.isDocked()  - Check current dock state
+    %
+    %   Tip: After launching, right-click the "Claude Code" tab and select
+    %   "Tile Right" to position it as a persistent side panel.
 
     properties (SetAccess = private)
         Settings            % Configuration settings
     end
 
     properties (Access = private)
-        Figure              % Chat figure
+        Figure              % Main uifigure window
         ChatController      % ChatUIController instance
         PythonBridge        % Python MatlabBridge instance
         SimulinkBridge      % SimulinkBridge instance
         IsOpen = false      % Whether the app is open
-        UsingToolGroup = false  % Whether toolbar mode is being used
-
-        % Toolbar controls (when using toolbar mode)
-        StopButton          % Stop button reference
-        WorkspaceCheckbox   % Include Workspace checkbox
-        SimulinkCheckbox    % Include Simulink checkbox
     end
 
     properties (Constant, Access = private)
@@ -39,11 +39,16 @@ classdef ClaudeCodeApp < handle
         DEFAULT_HEIGHT = 700
     end
 
+    properties (Access = private)
+        IsDocked = true     % Whether to dock into MATLAB desktop
+    end
+
     methods
         function obj = ClaudeCodeApp()
             %CLAUDECODEAPP Constructor
 
-            obj.Settings = claudecode.config.Settings.load();
+            obj.Settings = obj.loadSettings();
+            obj.IsDocked = obj.Settings.dockWindow;
             obj.initialize();
         end
 
@@ -68,14 +73,7 @@ classdef ClaudeCodeApp < handle
                 return;
             end
 
-            % Decide which UI mode to use
-            % useToolGroup now means "use toolbar mode" (docked uifigure with toolbar)
-            if obj.Settings.useToolGroup
-                obj.createToolGroupWindow();
-            else
-                obj.createDockedWindow();
-            end
-
+            obj.createWindow();
             obj.IsOpen = true;
         end
 
@@ -96,13 +94,7 @@ classdef ClaudeCodeApp < handle
                 delete(obj.Figure);
             end
 
-            % Clear toolbar controls
-            obj.StopButton = [];
-            obj.WorkspaceCheckbox = [];
-            obj.SimulinkCheckbox = [];
-
             obj.IsOpen = false;
-            obj.UsingToolGroup = false;
         end
 
         function show(obj)
@@ -128,6 +120,39 @@ classdef ClaudeCodeApp < handle
             %GETPYTHONBRIDGE Get the Python bridge for custom agent registration
 
             bridge = obj.PythonBridge;
+        end
+
+        function dock(obj)
+            %DOCK Dock the window into the MATLAB desktop
+            %   After docking, you can tile the panel to the side by:
+            %   1. Right-click the tab title
+            %   2. Select "Tile Right" or drag to desired position
+
+            if ~isempty(obj.Figure) && isvalid(obj.Figure)
+                obj.Figure.WindowStyle = 'docked';
+                obj.IsDocked = true;
+            end
+        end
+
+        function undock(obj)
+            %UNDOCK Undock the window to a floating window
+
+            if ~isempty(obj.Figure) && isvalid(obj.Figure)
+                obj.Figure.WindowStyle = 'normal';
+                obj.IsDocked = false;
+
+                % Reposition to right side of screen
+                screenSize = get(0, 'ScreenSize');
+                xPos = screenSize(3) - obj.DEFAULT_WIDTH - 50;
+                yPos = (screenSize(4) - obj.DEFAULT_HEIGHT) / 2;
+                obj.Figure.Position = [xPos, yPos, obj.DEFAULT_WIDTH, obj.DEFAULT_HEIGHT];
+            end
+        end
+
+        function tf = isDocked(obj)
+            %ISDOCKED Returns true if window is currently docked
+
+            tf = obj.IsDocked;
         end
     end
 
@@ -163,142 +188,12 @@ classdef ClaudeCodeApp < handle
             end
         end
 
-        function available = isToolGroupAvailable(~)
-            %ISTOOLGROUPAVAILABLE Check if ToolGroup API is available
+        function createWindow(obj)
+            %CREATEWINDOW Create the main application window
 
-            try
-                available = exist('matlab.ui.internal.desktop.ToolGroup', 'class') == 8;
-            catch
-                available = false;
-            end
-        end
-
-        function createToolGroupWindow(obj)
-            %CREATETOOLGROUPWINDOW Create docked uifigure with toolbar
-            %
-            %   Note: ToolGroup has compatibility issues with uihtml, so we use
-            %   a docked uifigure with a custom toolbar panel instead.
-
-            % Create docked uifigure
-            obj.Figure = uifigure(...
-                'Name', obj.APP_TITLE, ...
-                'Resize', 'on', ...
-                'CloseRequestFcn', @(~,~) obj.onCloseRequest());
-            obj.Figure.WindowStyle = 'docked';
-
-            % Create toolbar panel at top
-            toolbarHeight = 36;
-            obj.Figure.AutoResizeChildren = 'off';
-
-            toolbarPanel = uipanel(obj.Figure, ...
-                'Units', 'pixels', ...
-                'Position', [0, obj.Figure.Position(4) - toolbarHeight, obj.Figure.Position(3), toolbarHeight], ...
-                'BorderType', 'none', ...
-                'BackgroundColor', [0.94 0.94 0.94]);
-
-            % Create toolbar buttons using helper
-            obj.createToolbarButtons(toolbarPanel);
-
-            % Create chat panel below toolbar
-            chatPanel = uipanel(obj.Figure, ...
-                'Units', 'pixels', ...
-                'Position', [0, 0, obj.Figure.Position(3), obj.Figure.Position(4) - toolbarHeight], ...
-                'BorderType', 'none');
-
-            % Create chat controller in the chat panel
-            obj.ChatController = claudecode.ChatUIController(...
-                chatPanel, obj.PythonBridge);
-
-            % Connect Simulink bridge
-            obj.ChatController.SimulinkBridge = obj.SimulinkBridge;
-
-            % Set up streaming state callback
-            obj.ChatController.StreamingStateChangedFcn = @(isStreaming) obj.onStreamingStateChanged(isStreaming);
-
-            % Store toolbar panel for resize handling
-            obj.Figure.UserData = struct('toolbarPanel', toolbarPanel, 'chatPanel', chatPanel, 'toolbarHeight', toolbarHeight);
-
-            % Set up resize callback
-            obj.Figure.SizeChangedFcn = @(src,~) obj.onToolbarFigureResize(src);
-
-            obj.UsingToolGroup = true;
-        end
-
-        function createToolbarButtons(obj, parent)
-            %CREATETOOLBARBUTTONS Create toolbar buttons in the panel
-
-            btnWidth = 80;
-            btnHeight = 26;
-            spacing = 5;
-            x = spacing;
-            y = (parent.Position(4) - btnHeight) / 2;
-
-            % Clear Chat button
-            clearBtn = uibutton(parent, ...
-                'Text', 'Clear', ...
-                'Position', [x, y, btnWidth, btnHeight], ...
-                'ButtonPushedFcn', @(~,~) obj.onClearChat());
-            x = x + btnWidth + spacing;
-
-            % New button
-            newBtn = uibutton(parent, ...
-                'Text', 'New', ...
-                'Position', [x, y, btnWidth, btnHeight], ...
-                'ButtonPushedFcn', @(~,~) obj.onNewConversation());
-            x = x + btnWidth + spacing;
-
-            % Stop button
-            obj.StopButton = uibutton(parent, ...
-                'Text', 'Stop', ...
-                'Position', [x, y, btnWidth, btnHeight], ...
-                'Enable', 'off', ...
-                'ButtonPushedFcn', @(~,~) obj.onStop());
-            x = x + btnWidth + spacing * 3;
-
-            % Separator
-            x = x + 10;
-
-            % Include Workspace checkbox
-            obj.WorkspaceCheckbox = uicheckbox(parent, ...
-                'Text', 'Workspace', ...
-                'Position', [x, y, 90, btnHeight], ...
-                'Value', obj.Settings.autoIncludeWorkspace, ...
-                'ValueChangedFcn', @(src,~) obj.onToggleWorkspace(src.Value));
-            x = x + 95;
-
-            % Include Simulink checkbox
-            obj.SimulinkCheckbox = uicheckbox(parent, ...
-                'Text', 'Simulink', ...
-                'Position', [x, y, 80, btnHeight], ...
-                'Value', obj.Settings.autoIncludeSimulink, ...
-                'ValueChangedFcn', @(src,~) obj.onToggleSimulink(src.Value));
-        end
-
-        function onToolbarFigureResize(obj, fig)
-            %ONTOOLBARFIGURERESIZE Handle figure resize with toolbar
-
-            if isempty(fig.UserData)
-                return;
-            end
-
-            toolbarPanel = fig.UserData.toolbarPanel;
-            chatPanel = fig.UserData.chatPanel;
-            toolbarHeight = fig.UserData.toolbarHeight;
-
-            figPos = fig.Position;
-
-            % Resize toolbar panel (stays at top)
-            toolbarPanel.Position = [0, figPos(4) - toolbarHeight, figPos(3), toolbarHeight];
-
-            % Resize chat panel (fills rest)
-            chatPanel.Position = [0, 0, figPos(3), figPos(4) - toolbarHeight];
-        end
-
-        function createDockedWindow(obj)
-            %CREATEDOCKEDWINDOW Create fallback docked uifigure window
-
-            if obj.Settings.dockWindow
-                % Create docked figure
+            if obj.IsDocked
+                % Create docked figure - WindowStyle must be set first
+                % Color is omitted to let HTML content handle theming
                 obj.Figure = uifigure(...
                     'Name', obj.APP_TITLE, ...
                     'Resize', 'on', ...
@@ -323,8 +218,6 @@ classdef ClaudeCodeApp < handle
 
             % Connect Simulink bridge
             obj.ChatController.SimulinkBridge = obj.SimulinkBridge;
-
-            obj.UsingToolGroup = false;
         end
 
         function onCloseRequest(obj)
@@ -333,107 +226,7 @@ classdef ClaudeCodeApp < handle
             obj.close();
         end
 
-        % Toolstrip callback handlers
-        function onClearChat(obj)
-            %ONCLEARCHAT Clear chat history
-
-            if ~isempty(obj.ChatController)
-                obj.ChatController.clearHistory();
-            end
-        end
-
-        function onNewConversation(obj)
-            %ONNEWCONVERSATION Start a new conversation
-
-            if ~isempty(obj.ChatController)
-                obj.ChatController.clearHistory();
-            end
-
-            % Reset Python conversation state
-            if ~isempty(obj.PythonBridge)
-                try
-                    obj.PythonBridge.reset_conversation();
-                catch
-                    % Method may not exist
-                end
-            end
-        end
-
-        function onStop(obj)
-            %ONSTOP Stop the current request
-
-            if ~isempty(obj.ChatController)
-                obj.ChatController.stopCurrentRequest();
-            end
-
-            % Stop Python async operation
-            if ~isempty(obj.PythonBridge)
-                try
-                    obj.PythonBridge.stop_async();
-                catch
-                    % Method may not exist
-                end
-            end
-        end
-
-        function onToggleWorkspace(obj, value)
-            %ONTOGGLEWORKSPACE Handle workspace toggle change
-
-            obj.Settings.autoIncludeWorkspace = value;
-
-            % Notify ChatController if needed
-            if ~isempty(obj.ChatController)
-                obj.ChatController.setIncludeWorkspace(value);
-            end
-        end
-
-        function onToggleSimulink(obj, value)
-            %ONTOGGLESSIMULINK Handle Simulink toggle change
-
-            obj.Settings.autoIncludeSimulink = value;
-
-            % Notify ChatController if needed
-            if ~isempty(obj.ChatController)
-                obj.ChatController.setIncludeSimulink(value);
-            end
-        end
-
-        function onChangeTheme(obj, theme)
-            %ONCHANGETHEME Handle theme change
-
-            obj.Settings.theme = theme;
-
-            % Notify ChatController
-            if ~isempty(obj.ChatController)
-                obj.ChatController.setTheme(theme);
-            end
-        end
-
-        function onOpenDocs(~)
-            %ONOPENDOCS Open documentation
-
-            web('https://github.com/anthropics/claude-code', '-browser');
-        end
-
-        function onReportIssue(~)
-            %ONREPORTISSUE Open issue reporter
-
-            web('https://github.com/anthropics/claude-code/issues', '-browser');
-        end
-
-        function onStreamingStateChanged(obj, isStreaming)
-            %ONSTREAMINGSTATECHANGED Handle streaming state changes
-
-            if ~isempty(obj.StopButton) && isvalid(obj.StopButton)
-                if isStreaming
-                    obj.StopButton.Enable = 'on';
-                else
-                    obj.StopButton.Enable = 'off';
-                end
-            end
-        end
-
-        function showSetupInstructions(~)
+        function showSetupInstructions(obj)
             %SHOWSETUPINSTRUCTIONS Show instructions for installing Claude CLI
 
             % Create a temporary visible figure for the dialog
@@ -449,6 +242,17 @@ classdef ClaudeCodeApp < handle
 
             uialert(tempFig, msg, 'Claude Code Not Found', 'Icon', 'warning', ...
                 'CloseFcn', @(~,~) delete(tempFig));
+        end
+
+        function settings = loadSettings(~)
+            %LOADSETTINGS Load saved settings or defaults
+
+            settings = struct();
+            settings.theme = 'dark';
+            settings.autoIncludeWorkspace = false;
+            settings.autoIncludeSimulink = false;
+            settings.maxHistoryLength = 100;
+            settings.dockWindow = true;  % Dock into MATLAB desktop by default
         end
     end
 
