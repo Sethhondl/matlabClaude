@@ -26,6 +26,10 @@ classdef ChatUIController < handle
         Messages = {}       % Cell array of message structs
         IsStreaming = false % Whether currently streaming
         CurrentStreamText = '' % Accumulated text during streaming
+
+        % Polling timeout
+        PollingStartTime    % Time when polling started
+        MaxPollingDuration = 300 % Maximum polling duration in seconds (5 minutes)
     end
 
     events
@@ -247,6 +251,9 @@ classdef ChatUIController < handle
         function startPolling(obj)
             %STARTPOLLING Start polling for async response chunks
 
+            % Record start time for timeout detection
+            obj.PollingStartTime = tic;
+
             obj.PollingTimer = timer(...
                 'ExecutionMode', 'fixedSpacing', ...
                 'Period', 0.05, ...  % 50ms polling
@@ -258,6 +265,24 @@ classdef ChatUIController < handle
             %POLLASYNCRESPONSE Poll Python for async response content
 
             try
+                % Check for polling timeout
+                if ~isempty(obj.PollingStartTime)
+                    elapsedTime = toc(obj.PollingStartTime);
+                    if elapsedTime > obj.MaxPollingDuration
+                        % Timeout occurred - stop polling and show error
+                        if ~isempty(obj.PollingTimer) && isvalid(obj.PollingTimer)
+                            stop(obj.PollingTimer);
+                            delete(obj.PollingTimer);
+                            obj.PollingTimer = [];
+                        end
+                        obj.endStreaming();
+                        obj.sendError(sprintf(...
+                            'Request timed out after %.0f seconds. The AI may be unavailable or processing a complex request. Please try again.', ...
+                            elapsedTime));
+                        return;
+                    end
+                end
+
                 % Get any new content (text, images, tool use)
                 content = obj.PythonBridge.poll_async_content();
                 contentList = cell(content);
