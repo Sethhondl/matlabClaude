@@ -22,6 +22,8 @@ helpsearch*/
 # Test output
 test-results/
 coverage/
+matlabTestENV/
+python/evals/results/
 
 # Build artifacts
 release/
