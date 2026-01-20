@@ -14,6 +14,7 @@ import atexit
 
 from .agent_manager import AgentManager
 from .image_queue import poll_images, clear_images
+from .specialized_agent_manager import SpecializedAgentManager, RoutingResult
 
 # Try to import the agent (requires claude-agent-sdk and Python 3.10+)
 try:
@@ -52,6 +53,10 @@ class MatlabBridge:
         """
         self.agent_manager = AgentManager()
         self._use_sdk = use_agent_sdk and AGENT_SDK_AVAILABLE
+
+        # Specialized agent manager for routing
+        self._specialized_manager = SpecializedAgentManager()
+        self._current_routing: Optional[RoutingResult] = None
 
         # Agent SDK mode
         self._agent: Optional[MatlabAgent] = None
@@ -268,11 +273,21 @@ class MatlabBridge:
         # Clear any stale images from previous requests
         clear_images()
 
+        # Route to specialized agent (SDK mode only)
+        routing = None
+        if self._use_sdk:
+            routing = self._specialized_manager.route_message(prompt, {"context": context})
+            self._current_routing = routing
+            # Add user message to context
+            self._specialized_manager.add_message_to_context(
+                "user", prompt, routing.config.name
+            )
+
         if self._use_sdk:
             # Run SDK async in background thread
             self._async_thread = threading.Thread(
                 target=self._run_sdk_async,
-                args=(prompt, context),
+                args=(prompt, context, routing),
                 daemon=True
             )
             self._async_thread.start()
@@ -296,28 +311,71 @@ class MatlabBridge:
                 resume_session=resume_session
             )
 
-    def _run_sdk_async(self, prompt: str, context: str) -> None:
+    def _run_sdk_async(
+        self,
+        prompt: str,
+        context: str,
+        routing: Optional[RoutingResult] = None
+    ) -> None:
         """Run SDK query in background thread.
 
         Keeps the agent running between messages for conversation memory.
         Uses the persistent event loop to maintain SDK client state.
+
+        Args:
+            prompt: User's message
+            context: Additional context
+            routing: Optional routing result for specialized agent selection
         """
-        full_prompt = f"{context}\n\n{prompt}" if context else prompt
+        # Use cleaned message if routing stripped a command
+        message = routing.cleaned_message if routing else prompt
+        full_prompt = f"{context}\n\n{message}" if context else message
 
         async def run():
-            if not self._agent:
+            # Determine which agent to use based on routing
+            agent = self._agent
+            agent_name = "GeneralAgent"
+
+            if routing and routing.config:
+                agent_name = routing.config.name
+
+                # Check if we need to switch agents
+                current_config = getattr(self._agent, '_config_name', None)
+                if current_config != agent_name:
+                    # Stop current agent if running
+                    if self._agent_running and self._agent:
+                        await self._agent.stop()
+                        self._agent_running = False
+
+                    # Create new agent from config
+                    self._agent = MatlabAgent.from_config(routing.config)
+                    self._agent._config_name = agent_name  # Track config for switching
+                    agent = self._agent
+
+            if not agent:
+                # Set error response for missing agent case
+                with self._async_lock:
+                    self._async_response = {
+                        'text': '',
+                        'images': [],
+                        'success': False,
+                        'error': 'Agent not initialized',
+                        'session_id': '',
+                        'agent_name': agent_name,
+                        'routing_reason': routing.reason if routing else ''
+                    }
+                    self._async_complete = True
                 return
 
-            # Start agent lazily on first message
-            if not self._agent_running:
-                await self._agent.start()
-                self._agent_running = True
-
             try:
+                # Start agent lazily on first message (inside try for error handling)
+                if not self._agent_running:
+                    await agent.start()
+                    self._agent_running = True
                 text_parts = []
                 images = []
 
-                async for content in self._agent.query(full_prompt):
+                async for content in agent.query(full_prompt):
                     with self._async_lock:
                         # Store full structured content
                         self._async_content.append(content)
@@ -333,22 +391,31 @@ class MatlabBridge:
                             self._async_chunks.append(tool_text)
                             text_parts.append(tool_text)
 
+                response_text = ''.join(text_parts)
+
                 with self._async_lock:
                     self._async_response = {
-                        'text': ''.join(text_parts),
+                        'text': response_text,
                         'images': images,
                         'success': True,
                         'error': '',
-                        'session_id': self._agent.session_id or ''
+                        'session_id': agent.session_id or '',
+                        'agent_name': agent_name,
+                        'routing_reason': routing.reason if routing else ''
                     }
                     self._async_complete = True
 
+                # Add assistant response to context
+                self._specialized_manager.add_message_to_context(
+                    "assistant", response_text[:500], agent_name
+                )
+
                 # Increment turn count for compaction tracking
-                self._agent.increment_turn()
+                agent.increment_turn()
 
                 # Check if we need to compact the conversation
-                if self._agent.turn_count >= self._agent.COMPACTION_THRESHOLD:
-                    await self._agent.compact_conversation()
+                if agent.turn_count >= agent.COMPACTION_THRESHOLD:
+                    await agent.compact_conversation()
 
             except Exception as e:
                 with self._async_lock:
@@ -357,10 +424,28 @@ class MatlabBridge:
                         'images': [],
                         'success': False,
                         'error': str(e),
-                        'session_id': ''
+                        'session_id': '',
+                        'agent_name': agent_name,
+                        'routing_reason': routing.reason if routing else ''
                     }
                     self._async_complete = True
                 # Don't stop agent on error - let it recover
+
+            finally:
+                # Safety net: ensure _async_complete is always set
+                # This catches any edge cases we might have missed
+                with self._async_lock:
+                    if not self._async_complete:
+                        self._async_response = {
+                            'text': '',
+                            'images': [],
+                            'success': False,
+                            'error': 'Unexpected error during agent execution',
+                            'session_id': '',
+                            'agent_name': agent_name,
+                            'routing_reason': routing.reason if routing else ''
+                        }
+                        self._async_complete = True
 
         # Submit to persistent event loop (non-blocking)
         if self._loop and self._loop.is_running():
@@ -449,6 +534,10 @@ class MatlabBridge:
         This should be called when the user clicks the "Clear" button
         to start a fresh conversation.
         """
+        # Clear specialized agent manager context
+        self._specialized_manager.clear_context()
+        self._current_routing = None
+
         if self._use_sdk and self._agent:
             if self._loop and self._loop.is_running():
                 future = asyncio.run_coroutine_threadsafe(
@@ -479,3 +568,71 @@ class MatlabBridge:
         if self._use_sdk and self._agent:
             return self._agent.turn_count
         return 0
+
+    # =========================================================================
+    # Specialized Agent Routing API
+    # =========================================================================
+
+    def get_available_commands(self) -> List[str]:
+        """Get list of available slash commands.
+
+        Returns:
+            List of command prefixes (e.g., ["/git", "/review", ...])
+        """
+        return self._specialized_manager.get_available_commands()
+
+    def get_specialized_agent_info(self) -> List[Dict[str, str]]:
+        """Get information about all available specialized agents.
+
+        Returns:
+            List of dicts with agent name, command, and description
+        """
+        return self._specialized_manager.get_agent_info()
+
+    def get_current_agent_name(self) -> str:
+        """Get the name of the currently active specialized agent.
+
+        Returns:
+            Agent name (e.g., "GitAgent") or empty string
+        """
+        return self._specialized_manager.get_current_agent()
+
+    def get_last_routing_info(self) -> Dict[str, Any]:
+        """Get information about the last routing decision.
+
+        Returns:
+            Dict with routing details:
+            - agent_name: Name of selected agent
+            - command: Command prefix (if explicit)
+            - is_explicit: True if explicit command was used
+            - confidence: Auto-detection confidence score
+            - reason: Human-readable routing explanation
+        """
+        if not self._current_routing:
+            return {
+                'agent_name': '',
+                'command': '',
+                'is_explicit': False,
+                'confidence': 0.0,
+                'reason': ''
+            }
+
+        return {
+            'agent_name': self._current_routing.config.name,
+            'command': self._current_routing.config.command_prefix,
+            'is_explicit': self._current_routing.is_explicit,
+            'confidence': self._current_routing.confidence,
+            'reason': self._current_routing.reason
+        }
+
+    def force_agent(self, agent_name: str) -> bool:
+        """Force selection of a specific agent by name.
+
+        Args:
+            agent_name: Name of agent to select (e.g., "GitAgent")
+
+        Returns:
+            True if agent was found and selected
+        """
+        config = self._specialized_manager.force_agent(agent_name)
+        return config is not None

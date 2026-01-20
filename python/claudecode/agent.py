@@ -9,13 +9,16 @@ plotting, and Simulink interaction.
 import asyncio
 import os
 import shutil
-from typing import Optional, AsyncIterator, Dict, Any, List
+from typing import Optional, AsyncIterator, Dict, Any, List, TYPE_CHECKING
 
 from claude_agent_sdk import (
     ClaudeSDKClient,
     ClaudeAgentOptions,
     create_sdk_mcp_server,
 )
+
+if TYPE_CHECKING:
+    from .agents.specialized_agent import AgentConfig
 
 
 def find_claude_cli() -> Optional[str]:
@@ -105,7 +108,9 @@ class MatlabAgent:
         self,
         system_prompt: Optional[str] = None,
         include_file_tools: bool = True,
-        max_turns: Optional[int] = None
+        max_turns: Optional[int] = None,
+        thinking_budget: Optional[int] = None,
+        custom_allowed_tools: Optional[List[str]] = None
     ):
         """Initialize the MATLAB agent.
 
@@ -113,10 +118,14 @@ class MatlabAgent:
             system_prompt: Custom system prompt (uses default if None)
             include_file_tools: Include Read, Write, Glob, Grep tools
             max_turns: Maximum conversation turns (None for unlimited)
+            thinking_budget: Extended thinking token budget (None for standard)
+            custom_allowed_tools: Override default tool list (None for all tools)
         """
         self.system_prompt = system_prompt or MATLAB_SYSTEM_PROMPT
         self.include_file_tools = include_file_tools
         self.max_turns = max_turns
+        self.thinking_budget = thinking_budget
+        self._custom_allowed_tools = custom_allowed_tools
         self.client: Optional[ClaudeSDKClient] = None
         self._session_id: Optional[str] = None
 
@@ -138,7 +147,12 @@ class MatlabAgent:
             tools=all_tools
         )
 
-        # Build allowed tools list
+        # Use custom allowed tools if provided
+        if self._custom_allowed_tools is not None:
+            self.allowed_tools = self._custom_allowed_tools.copy()
+            return
+
+        # Build default allowed tools list
         self.allowed_tools: List[str] = [
             # MATLAB tools (MCP format: mcp__{server}__{tool})
             "mcp__matlab__matlab_execute",
@@ -179,19 +193,64 @@ class MatlabAgent:
         if self.max_turns:
             options.max_turns = self.max_turns
 
+        # Add thinking budget for extended thinking
+        if self.thinking_budget:
+            options.thinking_budget = self.thinking_budget
+
         return options
 
+    @classmethod
+    def from_config(cls, config: 'AgentConfig') -> 'MatlabAgent':
+        """Create a MatlabAgent from an AgentConfig.
+
+        This factory method creates an agent with custom system prompt,
+        restricted tools, and optional extended thinking budget.
+
+        Args:
+            config: AgentConfig specifying agent behavior
+
+        Returns:
+            Configured MatlabAgent instance
+
+        Example:
+            from claudecode.agents.agent_configs import GIT_AGENT_CONFIG
+            agent = MatlabAgent.from_config(GIT_AGENT_CONFIG)
+        """
+        return cls(
+            system_prompt=config.system_prompt,
+            include_file_tools=False,  # Use custom_allowed_tools instead
+            max_turns=None,
+            thinking_budget=config.thinking_budget,
+            custom_allowed_tools=config.allowed_tools,
+        )
+
     async def start(self) -> None:
-        """Start the agent client and connect to MATLAB."""
+        """Start the agent client and connect to MATLAB.
+
+        Raises:
+            RuntimeError: If MATLAB engine connection fails
+            RuntimeError: If Claude CLI is not found
+            RuntimeError: If SDK client fails to start
+        """
         # Connect to MATLAB engine
-        engine = get_engine()
-        if not engine.is_connected:
-            engine.connect()
+        try:
+            engine = get_engine()
+            if not engine.is_connected:
+                engine.connect()
+        except Exception as e:
+            raise RuntimeError(f"Failed to connect to MATLAB engine: {e}") from e
 
         # Create and start SDK client
-        options = self._get_options()
-        self.client = ClaudeSDKClient(options=options)
-        await self.client.__aenter__()
+        try:
+            options = self._get_options()
+        except Exception as e:
+            raise RuntimeError(f"Failed to configure agent options: {e}") from e
+
+        try:
+            self.client = ClaudeSDKClient(options=options)
+            await self.client.__aenter__()
+        except Exception as e:
+            raise RuntimeError(f"Failed to start Claude SDK client: {e}") from e
 
     async def stop(self) -> None:
         """Stop the agent client."""
