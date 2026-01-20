@@ -199,6 +199,12 @@ classdef ChatUIController < handle
                     case 'clearChat'
                         obj.onClearChat();
 
+                    case 'requestSettings'
+                        obj.sendCurrentSettings();
+
+                    case 'saveSettings'
+                        obj.handleSaveSettings(eventData);
+
                     otherwise
                         warning('ChatUIController:UnknownEvent', ...
                             'Unknown JS event: %s', eventName);
@@ -223,22 +229,26 @@ classdef ChatUIController < handle
                 return;
             end
 
+            % Generate trace ID for this message flow
+            obj.CurrentTraceId = sprintf('msg_%s', datestr(now, 'HHMMSS_FFF'));
+
+            % Log message received
+            obj.Logger.info('ChatUIController', 'message_received', struct(...
+                'message_length', strlength(message)), ...
+                'TraceId', obj.CurrentTraceId);
+
+            % Check for /context command
+            [processedMessage, hasContext] = obj.processContextCommand(message);
+            message = processedMessage;
+
             % Add user message to history
             obj.addMessage('user', message);
 
             % Notify via event
             notify(obj, 'MessageSent');
 
-            % Build context for agents
+            % Build context for agents (empty - Claude will fetch on-demand)
             context = py.dict();
-            if isfield(data, 'includeWorkspace') && data.includeWorkspace
-                workspaceCtx = obj.WorkspaceProvider.getWorkspaceContext();
-                context{'workspace'} = workspaceCtx;
-            end
-            if isfield(data, 'includeSimulink') && data.includeSimulink && ~isempty(obj.SimulinkBridge)
-                simulinkCtx = obj.SimulinkBridge.buildSimulinkContext();
-                context{'simulink'} = simulinkCtx;
-            end
 
             % Check if any Python agent can handle this message
             agentResult = obj.PythonBridge.dispatch_to_agent(message, context);
@@ -258,13 +268,9 @@ classdef ChatUIController < handle
             contextStr = obj.WorkspaceProvider.getCurrentDirectoryContext();
             contextStr = [contextStr, newline, newline, obj.WorkspaceProvider.getEditorContext()];
 
-            % Optionally include workspace context
-            if isfield(data, 'includeWorkspace') && data.includeWorkspace
-                contextStr = [contextStr, newline, newline, obj.WorkspaceProvider.getWorkspaceContext()];
-            end
-            % Optionally include Simulink context
-            if isfield(data, 'includeSimulink') && data.includeSimulink && ~isempty(obj.SimulinkBridge)
-                contextStr = [contextStr, newline, newline, obj.SimulinkBridge.buildSimulinkContext()];
+            % If /context command was used, prepend workspace and Simulink context
+            if hasContext
+                contextStr = [contextStr, newline, newline, obj.buildFullContext()];
             end
 
             obj.startStreaming();
@@ -488,6 +494,89 @@ classdef ChatUIController < handle
             obj.updateStatus('ready', 'Ready');
         end
 
+        function sendCurrentSettings(obj)
+            %SENDCURRENTSETTINGS Send current settings to JavaScript
+
+            try
+                settings = claudecode.config.Settings.load();
+                settingsStruct = struct(...
+                    'model', settings.model, ...
+                    'theme', settings.theme, ...
+                    'codeExecutionMode', settings.codeExecutionMode, ...
+                    'loggingEnabled', settings.loggingEnabled, ...
+                    'logLevel', settings.logLevel, ...
+                    'logSensitiveData', settings.logSensitiveData);
+                obj.sendToJS('loadSettings', settingsStruct);
+            catch ME
+                warning('ChatUIController:SettingsError', ...
+                    'Error loading settings: %s', ME.message);
+            end
+        end
+
+        function handleSaveSettings(obj, data)
+            %HANDLESAVESETTINGS Save settings from JavaScript
+
+            try
+                settings = claudecode.config.Settings.load();
+
+                % Update settings from data
+                if isfield(data, 'model')
+                    settings.model = data.model;
+                end
+                if isfield(data, 'theme')
+                    settings.theme = data.theme;
+                end
+                if isfield(data, 'codeExecutionMode')
+                    settings.codeExecutionMode = data.codeExecutionMode;
+                end
+                if isfield(data, 'loggingEnabled')
+                    settings.loggingEnabled = data.loggingEnabled;
+                end
+                if isfield(data, 'logLevel')
+                    settings.logLevel = data.logLevel;
+                end
+                if isfield(data, 'logSensitiveData')
+                    settings.logSensitiveData = data.logSensitiveData;
+                end
+
+                settings.save();
+
+                % Update Python bridge with new model
+                if ~isempty(obj.PythonBridge) && isfield(data, 'model')
+                    try
+                        obj.PythonBridge.update_model(data.model);
+                    catch ME
+                        warning('ChatUIController:ModelUpdateError', ...
+                            'Error updating model in Python: %s', ME.message);
+                    end
+                end
+
+                % Update Logger with new settings
+                if isfield(data, 'loggingEnabled') || isfield(data, 'logLevel') || isfield(data, 'logSensitiveData')
+                    try
+                        logger = claudecode.logging.Logger.getInstance();
+                        config = logger.getConfig();
+                        if isfield(data, 'loggingEnabled')
+                            config.Enabled = data.loggingEnabled;
+                        end
+                        if isfield(data, 'logLevel')
+                            config.Level = claudecode.logging.LogLevel.fromString(data.logLevel);
+                        end
+                        if isfield(data, 'logSensitiveData')
+                            config.LogSensitiveData = data.logSensitiveData;
+                        end
+                    catch ME
+                        warning('ChatUIController:LoggerUpdateError', ...
+                            'Error updating logger settings: %s', ME.message);
+                    end
+                end
+
+            catch ME
+                warning('ChatUIController:SettingsSaveError', ...
+                    'Error saving settings: %s', ME.message);
+            end
+        end
+
         function onUIReady(obj)
             %ONUIREADY Handle UI ready signal
 
@@ -551,6 +640,62 @@ classdef ChatUIController < handle
 
             if obj.IsReady && ~isempty(obj.HTMLComponent) && isvalid(obj.HTMLComponent)
                 sendEventToHTMLSource(obj.HTMLComponent, eventName, data);
+            end
+        end
+
+        function [processedMessage, hasContext] = processContextCommand(obj, message)
+            %PROCESSCONTEXTCOMMAND Check for /context command and process it
+            %
+            %   Returns:
+            %       processedMessage: Message with /context stripped if present
+            %       hasContext: true if /context command was used
+
+            hasContext = false;
+            processedMessage = message;
+
+            % Check if message starts with /context
+            trimmedMsg = strtrim(message);
+            if startsWith(trimmedMsg, '/context', 'IgnoreCase', true)
+                hasContext = true;
+
+                % Remove /context from the message
+                remainder = strtrim(trimmedMsg(9:end));  % Length of '/context' is 8
+
+                if isempty(remainder)
+                    % Just /context alone - add a prompt for Claude
+                    processedMessage = 'Please analyze my current MATLAB workspace and Simulink model (if open).';
+                else
+                    % /context followed by a question
+                    processedMessage = remainder;
+                end
+
+                obj.Logger.info('ChatUIController', 'context_command_used', struct(...
+                    'has_followup', ~isempty(remainder)));
+            end
+        end
+
+        function contextStr = buildFullContext(obj)
+            %BUILDFULLCONTEXT Build full workspace + Simulink context string
+            %
+            %   Returns combined context from workspace and open Simulink model
+
+            contextStr = '';
+
+            % Add workspace context
+            workspaceCtx = obj.WorkspaceProvider.getWorkspaceContext();
+            if ~isempty(workspaceCtx)
+                contextStr = ['## MATLAB Workspace Context', newline, workspaceCtx];
+            end
+
+            % Add Simulink context if available
+            if ~isempty(obj.SimulinkBridge)
+                simulinkCtx = obj.SimulinkBridge.buildSimulinkContext();
+                if ~isempty(simulinkCtx)
+                    if ~isempty(contextStr)
+                        contextStr = [contextStr, newline, newline];
+                    end
+                    contextStr = [contextStr, '## Simulink Model Context', newline, simulinkCtx];
+                end
             end
         end
 

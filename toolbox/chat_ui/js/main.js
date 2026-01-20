@@ -35,6 +35,7 @@ function setup(htmlComponent) {
     htmlComponent.addEventListener('codeResult', handleCodeResult);
     htmlComponent.addEventListener('showImage', handleShowImage);
     htmlComponent.addEventListener('setTheme', handleSetTheme);
+    htmlComponent.addEventListener('loadSettings', handleLoadSettings);
 
     // Initialize UI event handlers
     initializeUI();
@@ -137,6 +138,9 @@ function initializeUI() {
 
     // Auto-resize textarea
     userInput.addEventListener('input', autoResizeTextarea);
+
+    // Initialize settings manager
+    SettingsManager.init();
 }
 
 /**
@@ -199,10 +203,6 @@ function sendMessage() {
         return;
     }
 
-    // Get context options
-    const includeWorkspace = document.getElementById('include-workspace').checked;
-    const includeSimulink = document.getElementById('include-simulink').checked;
-
     // Clear input
     input.value = '';
     input.style.height = 'auto';
@@ -215,8 +215,6 @@ function sendMessage() {
     if (window.matlabBridge) {
         window.matlabBridge.sendEventToMATLAB('userMessage', {
             content: message,
-            includeWorkspace: includeWorkspace,
-            includeSimulink: includeSimulink,
             timestamp: Date.now()
         });
     }
@@ -321,4 +319,138 @@ function setTheme(theme) {
     } else {
         document.documentElement.removeAttribute('data-theme');
     }
+}
+
+// ============================================================================
+// Settings Manager
+// ============================================================================
+
+/**
+ * SettingsManager handles the settings modal and communication with MATLAB
+ */
+const SettingsManager = {
+    modal: null,
+    isOpen: false,
+
+    /**
+     * Initialize settings manager - bind event listeners
+     */
+    init() {
+        this.modal = document.getElementById('settings-modal');
+
+        // Settings button opens modal
+        document.getElementById('settings-btn').addEventListener('click', () => this.open());
+
+        // Close button (X in header)
+        document.getElementById('modal-close-btn').addEventListener('click', () => this.close());
+
+        // Close on overlay click (outside modal)
+        this.modal.addEventListener('click', (e) => {
+            if (e.target === this.modal) {
+                this.close();
+            }
+        });
+
+        // Close on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.isOpen) {
+                this.close();
+            }
+        });
+
+        // Live-apply settings on change
+        document.getElementById('model-select').addEventListener('change', () => this.applySettings());
+        document.getElementById('theme-select').addEventListener('change', () => this.applySettings());
+        document.getElementById('execution-mode-select').addEventListener('change', () => this.applySettings());
+        document.getElementById('logging-enabled-checkbox').addEventListener('change', () => this.applySettings());
+        document.getElementById('log-level-select').addEventListener('change', () => this.applySettings());
+        document.getElementById('log-sensitive-checkbox').addEventListener('change', () => this.applySettings());
+    },
+
+    /**
+     * Open the settings modal and request current settings from MATLAB
+     */
+    open() {
+        if (this.isOpen) return;
+
+        this.modal.style.display = 'flex';
+        this.isOpen = true;
+
+        // Request current settings from MATLAB
+        if (window.matlabBridge) {
+            window.matlabBridge.sendEventToMATLAB('requestSettings', {
+                timestamp: Date.now()
+            });
+        }
+    },
+
+    /**
+     * Close the settings modal
+     */
+    close() {
+        this.modal.style.display = 'none';
+        this.isOpen = false;
+    },
+
+    /**
+     * Load settings into the form from MATLAB response
+     * @param {Object} settings - Settings object from MATLAB
+     */
+    loadSettings(settings) {
+        // Model selection
+        const modelSelect = document.getElementById('model-select');
+        if (settings.model) {
+            modelSelect.value = settings.model;
+        }
+
+        // Theme selection
+        const themeSelect = document.getElementById('theme-select');
+        if (settings.theme) {
+            themeSelect.value = settings.theme;
+        }
+
+        // Code execution mode
+        const executionSelect = document.getElementById('execution-mode-select');
+        if (settings.codeExecutionMode) {
+            executionSelect.value = settings.codeExecutionMode;
+        }
+
+        // Logging settings
+        document.getElementById('logging-enabled-checkbox').checked = settings.loggingEnabled !== false;
+        if (settings.logLevel) {
+            document.getElementById('log-level-select').value = settings.logLevel;
+        }
+        document.getElementById('log-sensitive-checkbox').checked = settings.logSensitiveData !== false;
+    },
+
+    /**
+     * Apply settings immediately - called on any form element change
+     */
+    applySettings() {
+        const settings = {
+            model: document.getElementById('model-select').value,
+            theme: document.getElementById('theme-select').value,
+            codeExecutionMode: document.getElementById('execution-mode-select').value,
+            loggingEnabled: document.getElementById('logging-enabled-checkbox').checked,
+            logLevel: document.getElementById('log-level-select').value,
+            logSensitiveData: document.getElementById('log-sensitive-checkbox').checked
+        };
+
+        // Apply theme immediately
+        setTheme(settings.theme);
+
+        // Send to MATLAB for persistence
+        if (window.matlabBridge) {
+            window.matlabBridge.sendEventToMATLAB('saveSettings', settings);
+        }
+    }
+};
+
+/**
+ * Handle loadSettings event from MATLAB
+ * @param {Event} event - Contains settings data
+ */
+function handleLoadSettings(event) {
+    const data = event.Data;
+    SettingsManager.loadSettings(data);
 }

@@ -14,8 +14,6 @@ classdef Settings < handle
         fontSize = 14                        % Chat font size
 
         % Context Settings
-        autoIncludeWorkspace = false        % Auto-include workspace in prompts
-        autoIncludeSimulink = false         % Auto-include Simulink model
         maxWorkspaceVariables = 50          % Max variables to include
 
         % Execution Settings
@@ -25,6 +23,7 @@ classdef Settings < handle
         allowDestructiveOps = false         % Allow delete, rmdir, etc.
 
         % Claude Settings
+        model = 'claude-sonnet-4-5-20250514'  % Claude model ID
         claudePath = 'claude'               % Path to Claude CLI
         defaultAllowedTools = {'Edit', 'Write', 'Read', 'Bash', 'Glob', 'Grep'}
 
@@ -43,9 +42,23 @@ classdef Settings < handle
 
     properties (Constant, Access = private)
         SETTINGS_FILE = 'claude_code_settings.json'
+        VALID_MODELS = {...
+            'claude-sonnet-4-5-20250514', ...
+            'claude-opus-4-5-20250514', ...
+            'claude-haiku-4-5-20250514'}
     end
 
     methods
+        function set.model(obj, value)
+            %SET.MODEL Validate and set model property
+            if ~ismember(value, obj.VALID_MODELS)
+                error('Settings:InvalidModel', ...
+                    'Invalid model: %s. Valid models are: %s', ...
+                    value, strjoin(obj.VALID_MODELS, ', '));
+            end
+            obj.model = value;
+        end
+
         function save(obj)
             %SAVE Save settings to file
 
