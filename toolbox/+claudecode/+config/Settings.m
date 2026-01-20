@@ -38,6 +38,9 @@ classdef Settings < handle
         logSensitiveData = true             % Include full messages/code for reconstruction
         logMaxFileSize = 10485760           % 10 MB rotation threshold
         logMaxFiles = 10                    % Keep last N log files
+
+        % Display Settings
+        headlessMode = true                 % Suppress figure/model pop-up windows
     end
 
     properties (Constant, Access = private)

@@ -538,6 +538,9 @@ classdef ChatUIController < handle
                 if isfield(data, 'logSensitiveData')
                     settings.logSensitiveData = data.logSensitiveData;
                 end
+                if isfield(data, 'headlessMode')
+                    settings.headlessMode = data.headlessMode;
+                end
 
                 settings.save();
 
@@ -568,6 +571,16 @@ classdef ChatUIController < handle
                     catch ME
                         warning('ChatUIController:LoggerUpdateError', ...
                             'Error updating logger settings: %s', ME.message);
+                    end
+                end
+
+                % Update Python bridge with headless mode setting
+                if ~isempty(obj.PythonBridge) && isfield(data, 'headlessMode')
+                    try
+                        obj.PythonBridge.set_headless_mode(data.headlessMode);
+                    catch ME
+                        warning('ChatUIController:HeadlessModeError', ...
+                            'Error updating headless mode in Python: %s', ME.message);
                     end
                 end
 

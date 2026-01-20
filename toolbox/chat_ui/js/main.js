@@ -345,51 +345,80 @@ const SettingsManager = {
      * Initialize settings manager - bind event listeners
      */
     init() {
-        this.modal = document.getElementById('settings-modal');
-
-        // Settings button opens modal
-        document.getElementById('settings-btn').addEventListener('click', () => this.open());
-
-        // Close button (X in header)
-        document.getElementById('modal-close-btn').addEventListener('click', () => this.close());
-
-        // Close on overlay click (outside modal)
-        this.modal.addEventListener('click', (e) => {
-            if (e.target === this.modal) {
-                this.close();
+        try {
+            this.modal = document.getElementById('settings-modal');
+            if (!this.modal) {
+                console.error('SettingsManager: modal element not found');
+                return;
             }
-        });
 
-        // Close on Escape key
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && this.isOpen) {
-                this.close();
+            // Settings button opens modal
+            const settingsBtn = document.getElementById('settings-btn');
+            if (settingsBtn) {
+                settingsBtn.addEventListener('click', () => this.open());
             }
-        });
 
-        // Live-apply settings on change
-        document.getElementById('model-select').addEventListener('change', () => this.applySettings());
-        document.getElementById('theme-select').addEventListener('change', () => this.applySettings());
-        document.getElementById('execution-mode-select').addEventListener('change', () => this.applySettings());
-        document.getElementById('logging-enabled-checkbox').addEventListener('change', () => this.applySettings());
-        document.getElementById('log-level-select').addEventListener('change', () => this.applySettings());
-        document.getElementById('log-sensitive-checkbox').addEventListener('change', () => this.applySettings());
+            // Close button (X in header)
+            const closeBtn = document.getElementById('modal-close-btn');
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => this.close());
+            }
+
+            // Close on overlay click (outside modal)
+            this.modal.addEventListener('click', (e) => {
+                if (e.target === this.modal) {
+                    this.close();
+                }
+            });
+
+            // Close on Escape key
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && this.isOpen) {
+                    this.close();
+                }
+            });
+
+            // Live-apply settings on change - use helper to safely bind
+            this._bindChangeHandler('model-select');
+            this._bindChangeHandler('theme-select');
+            this._bindChangeHandler('execution-mode-select');
+            this._bindChangeHandler('headless-mode-checkbox');
+            this._bindChangeHandler('logging-enabled-checkbox');
+            this._bindChangeHandler('log-level-select');
+            this._bindChangeHandler('log-sensitive-checkbox');
+        } catch (err) {
+            console.error('SettingsManager.init error:', err);
+        }
+    },
+
+    /**
+     * Helper to safely bind change handlers
+     */
+    _bindChangeHandler(elementId) {
+        const el = document.getElementById(elementId);
+        if (el) {
+            el.addEventListener('change', () => this.applySettings());
+        }
     },
 
     /**
      * Open the settings modal and request current settings from MATLAB
      */
     open() {
-        if (this.isOpen) return;
+        try {
+            if (this.isOpen || !this.modal) return;
 
-        this.modal.style.display = 'flex';
-        this.isOpen = true;
+            this.modal.style.display = 'flex';
+            this.isOpen = true;
 
-        // Request current settings from MATLAB
-        if (window.matlabBridge) {
-            window.matlabBridge.sendEventToMATLAB('requestSettings', {
-                timestamp: Date.now()
-            });
+            // Request current settings from MATLAB
+            if (window.matlabBridge) {
+                window.matlabBridge.sendEventToMATLAB('requestSettings', {
+                    timestamp: Date.now()
+                });
+            }
+        } catch (err) {
+            console.error('SettingsManager.open error:', err);
         }
     },
 
@@ -397,8 +426,14 @@ const SettingsManager = {
      * Close the settings modal
      */
     close() {
-        this.modal.style.display = 'none';
-        this.isOpen = false;
+        try {
+            if (this.modal) {
+                this.modal.style.display = 'none';
+            }
+            this.isOpen = false;
+        } catch (err) {
+            console.error('SettingsManager.close error:', err);
+        }
     },
 
     /**
@@ -406,51 +441,89 @@ const SettingsManager = {
      * @param {Object} settings - Settings object from MATLAB
      */
     loadSettings(settings) {
-        // Model selection
-        const modelSelect = document.getElementById('model-select');
-        if (settings.model) {
-            modelSelect.value = settings.model;
-        }
+        try {
+            if (!settings || typeof settings !== 'object') {
+                console.warn('SettingsManager.loadSettings: invalid settings object');
+                return;
+            }
 
-        // Theme selection
-        const themeSelect = document.getElementById('theme-select');
-        if (settings.theme) {
-            themeSelect.value = settings.theme;
-        }
+            // Model selection
+            const modelSelect = document.getElementById('model-select');
+            if (modelSelect && settings.model) {
+                modelSelect.value = settings.model;
+            }
 
-        // Code execution mode
-        const executionSelect = document.getElementById('execution-mode-select');
-        if (settings.codeExecutionMode) {
-            executionSelect.value = settings.codeExecutionMode;
-        }
+            // Theme selection
+            const themeSelect = document.getElementById('theme-select');
+            if (themeSelect && settings.theme) {
+                themeSelect.value = settings.theme;
+            }
 
-        // Logging settings
-        document.getElementById('logging-enabled-checkbox').checked = settings.loggingEnabled !== false;
-        if (settings.logLevel) {
-            document.getElementById('log-level-select').value = settings.logLevel;
+            // Code execution mode
+            const executionSelect = document.getElementById('execution-mode-select');
+            if (executionSelect && settings.codeExecutionMode) {
+                executionSelect.value = settings.codeExecutionMode;
+            }
+
+            // Headless mode (default to true/checked)
+            const headlessCheckbox = document.getElementById('headless-mode-checkbox');
+            if (headlessCheckbox) {
+                headlessCheckbox.checked = settings.headlessMode !== false;
+            }
+
+            // Logging settings
+            const loggingCheckbox = document.getElementById('logging-enabled-checkbox');
+            if (loggingCheckbox) {
+                loggingCheckbox.checked = settings.loggingEnabled !== false;
+            }
+
+            const logLevelSelect = document.getElementById('log-level-select');
+            if (logLevelSelect && settings.logLevel) {
+                logLevelSelect.value = settings.logLevel;
+            }
+
+            const logSensitiveCheckbox = document.getElementById('log-sensitive-checkbox');
+            if (logSensitiveCheckbox) {
+                logSensitiveCheckbox.checked = settings.logSensitiveData !== false;
+            }
+        } catch (err) {
+            console.error('SettingsManager.loadSettings error:', err);
         }
-        document.getElementById('log-sensitive-checkbox').checked = settings.logSensitiveData !== false;
     },
 
     /**
      * Apply settings immediately - called on any form element change
      */
     applySettings() {
-        const settings = {
-            model: document.getElementById('model-select').value,
-            theme: document.getElementById('theme-select').value,
-            codeExecutionMode: document.getElementById('execution-mode-select').value,
-            loggingEnabled: document.getElementById('logging-enabled-checkbox').checked,
-            logLevel: document.getElementById('log-level-select').value,
-            logSensitiveData: document.getElementById('log-sensitive-checkbox').checked
-        };
+        try {
+            // Get elements with null checks (avoid optional chaining for MATLAB compatibility)
+            const modelEl = document.getElementById('model-select');
+            const themeEl = document.getElementById('theme-select');
+            const execEl = document.getElementById('execution-mode-select');
+            const headlessEl = document.getElementById('headless-mode-checkbox');
+            const loggingEl = document.getElementById('logging-enabled-checkbox');
+            const logLevelEl = document.getElementById('log-level-select');
+            const logSensitiveEl = document.getElementById('log-sensitive-checkbox');
 
-        // Apply theme immediately
-        setTheme(settings.theme);
+            const settings = {
+                model: modelEl ? modelEl.value : 'claude-sonnet-4-5-20250514',
+                theme: themeEl ? themeEl.value : 'dark',
+                codeExecutionMode: execEl ? execEl.value : 'prompt',
+                headlessMode: headlessEl ? headlessEl.checked : true,
+                loggingEnabled: loggingEl ? loggingEl.checked : true,
+                logLevel: logLevelEl ? logLevelEl.value : 'INFO',
+                logSensitiveData: logSensitiveEl ? logSensitiveEl.checked : true
+            };
 
-        // Send to MATLAB for persistence
-        if (window.matlabBridge) {
-            window.matlabBridge.sendEventToMATLAB('saveSettings', settings);
+            // Apply theme immediately
+            setTheme(settings.theme);
+
+            // Send to MATLAB for persistence
+            if (window.matlabBridge) {
+                window.matlabBridge.sendEventToMATLAB('saveSettings', settings);
+            }
+        } catch (err) {
+            console.error('SettingsManager.applySettings error:', err);
         }
     }
 };

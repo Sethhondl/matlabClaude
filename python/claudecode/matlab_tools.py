@@ -18,6 +18,25 @@ from .logger import get_logger
 
 _logger = get_logger()
 
+# Global headless mode setting (controlled by bridge.py)
+_headless_mode: bool = True
+
+
+def set_headless_mode(enabled: bool) -> None:
+    """Set the global headless mode for figure suppression.
+
+    Args:
+        enabled: If True, figures will not appear on screen during execution.
+    """
+    global _headless_mode
+    _headless_mode = enabled
+    _logger.debug("matlab_tools", "headless_mode_set", {"enabled": enabled})
+
+
+def get_headless_mode() -> bool:
+    """Get the current headless mode setting."""
+    return _headless_mode
+
 
 def _get_figure_handles(engine) -> set:
     """Get set of current figure handles."""
@@ -183,8 +202,19 @@ async def matlab_execute(args: Dict[str, Any]) -> Dict[str, Any]:
         # Get existing figure handles before execution
         existing_figs = _get_figure_handles(engine) if capture_figures else set()
 
-        # Execute the code
-        result = engine.eval(code, capture_output=capture)
+        # Apply headless mode - suppress figure windows during execution
+        if _headless_mode:
+            engine.eval("__claude_prev_visible = get(0, 'DefaultFigureVisible');", capture_output=False)
+            engine.eval("set(0, 'DefaultFigureVisible', 'off');", capture_output=False)
+
+        try:
+            # Execute the code
+            result = engine.eval(code, capture_output=capture)
+        finally:
+            # Restore figure visibility setting
+            if _headless_mode:
+                engine.eval("set(0, 'DefaultFigureVisible', __claude_prev_visible);", capture_output=False)
+                engine.eval("clear __claude_prev_visible;", capture_output=False)
 
         if not result:
             result = "Code executed successfully (no output)"
@@ -327,60 +357,72 @@ async def matlab_plot(args: Dict[str, Any]) -> Dict[str, Any]:
         if not engine.is_connected:
             engine.connect()
 
-        # Create a new figure to ensure clean state
-        engine.eval("figure;", capture_output=False)
-
-        # Execute the plotting code
-        engine.eval(code, capture_output=False)
-
-        # Save to temporary file
-        with tempfile.NamedTemporaryFile(suffix=f".{fmt}", delete=False) as tmp:
-            tmp_path = tmp.name
+        # Apply headless mode - suppress figure windows during plotting
+        if _headless_mode:
+            engine.eval("__claude_prev_visible = get(0, 'DefaultFigureVisible');", capture_output=False)
+            engine.eval("set(0, 'DefaultFigureVisible', 'off');", capture_output=False)
 
         try:
-            # Use print for higher quality output
-            if fmt == "png":
-                engine.eval(f"print(gcf, '-dpng', '-r150', '{tmp_path}')", capture_output=False)
-            else:
-                engine.eval(f"saveas(gcf, '{tmp_path}')", capture_output=False)
-            engine.eval("close(gcf);", capture_output=False)
+            # Create a new figure to ensure clean state
+            engine.eval("figure;", capture_output=False)
 
-            # Read and encode the image
-            with open(tmp_path, "rb") as f:
-                image_data = f.read()
+            # Execute the plotting code
+            engine.eval(code, capture_output=False)
 
-            base64_image = base64.b64encode(image_data).decode("utf-8")
-            media_type = "image/png" if fmt == "png" else "image/svg+xml"
+            # Save to temporary file
+            with tempfile.NamedTemporaryFile(suffix=f".{fmt}", delete=False) as tmp:
+                tmp_path = tmp.name
 
-            image_block = {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": media_type,
-                    "data": base64_image
+            try:
+                # Use print for higher quality output
+                if fmt == "png":
+                    engine.eval(f"print(gcf, '-dpng', '-r150', '{tmp_path}')", capture_output=False)
+                else:
+                    engine.eval(f"saveas(gcf, '{tmp_path}')", capture_output=False)
+                engine.eval("close(gcf);", capture_output=False)
+
+                # Read and encode the image
+                with open(tmp_path, "rb") as f:
+                    image_data = f.read()
+
+                base64_image = base64.b64encode(image_data).decode("utf-8")
+                media_type = "image/png" if fmt == "png" else "image/svg+xml"
+
+                image_block = {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": base64_image
+                    }
                 }
-            }
 
-            # Push to the image queue for direct delivery to UI
-            push_image(image_block)
+                # Push to the image queue for direct delivery to UI
+                push_image(image_block)
 
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            _logger.info_timed("matlab_tools", "figure_captured", {
-                "format": fmt,
-                "image_size_bytes": len(image_data)
-            }, duration_ms)
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                _logger.info_timed("matlab_tools", "figure_captured", {
+                    "format": fmt,
+                    "image_size_bytes": len(image_data)
+                }, duration_ms)
 
-            return {
-                "content": [
-                    image_block,
-                    {"type": "text", "text": "Plot generated successfully."}
-                ]
-            }
+                return {
+                    "content": [
+                        image_block,
+                        {"type": "text", "text": "Plot generated successfully."}
+                    ]
+                }
+
+            finally:
+                # Clean up temp file
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
 
         finally:
-            # Clean up temp file
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+            # Restore figure visibility setting
+            if _headless_mode:
+                engine.eval("set(0, 'DefaultFigureVisible', __claude_prev_visible);", capture_output=False)
+                engine.eval("clear __claude_prev_visible;", capture_output=False)
 
     except Exception as e:
         _logger.error("matlab_tools", "plot_error", {

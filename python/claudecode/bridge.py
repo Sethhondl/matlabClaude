@@ -17,6 +17,7 @@ from .agent_manager import AgentManager
 from .image_queue import poll_images, clear_images
 from .specialized_agent_manager import SpecializedAgentManager, RoutingResult
 from .logger import get_logger, configure_logger
+from .matlab_tools import set_headless_mode as _set_headless_mode
 
 # Try to import the agent (requires claude-agent-sdk and Python 3.10+)
 try:
@@ -646,6 +647,21 @@ class MatlabBridge:
             Current model ID
         """
         return self._current_model
+
+    def set_headless_mode(self, enabled: bool) -> None:
+        """Set headless mode for figure/model window suppression.
+
+        When enabled, MATLAB figures and Simulink model windows will not
+        appear on screen during code execution. Images are still captured
+        and sent to the chat UI.
+
+        Args:
+            enabled: If True, suppress pop-up windows. If False, allow windows.
+        """
+        _set_headless_mode(enabled)
+        self._logger.info("MatlabBridge", "headless_mode_changed", {
+            "enabled": enabled
+        })
 
     def get_conversation_turns(self) -> int:
         """Get the current conversation turn count.
