@@ -85,6 +85,11 @@ class MatlabBridge:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
 
+        # Shutdown coordination
+        self._shutdown_requested = False
+        self._shutdown_lock = threading.Lock()
+        self._atexit_registered = False
+
         # Initialize based on mode
         if self._use_sdk:
             self._agent = MatlabAgent(model=self._current_model)
@@ -117,6 +122,7 @@ class MatlabBridge:
 
         # Register cleanup on exit
         atexit.register(self._cleanup_loop)
+        self._atexit_registered = True
 
     def _cleanup_loop(self) -> None:
         """Clean up the persistent event loop."""
@@ -132,12 +138,33 @@ class MatlabBridge:
                     pass
             self._loop.call_soon_threadsafe(self._loop.stop)
 
-    def _run_in_loop(self, coro):
-        """Run a coroutine in the persistent event loop and wait for result."""
+    def _run_in_loop(self, coro, timeout: float = 30.0):
+        """Run a coroutine in the persistent event loop and wait for result.
+
+        Args:
+            coro: The coroutine to run
+            timeout: Maximum time to wait for result (default 30s)
+
+        Returns:
+            The coroutine result
+
+        Raises:
+            RuntimeError: If shutdown requested or event loop not running
+            TimeoutError: If timeout exceeded
+        """
+        with self._shutdown_lock:
+            if self._shutdown_requested:
+                raise RuntimeError("Bridge is shutting down")
+
         if not self._loop or not self._loop.is_running():
             raise RuntimeError("Event loop not running")
+
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result()
+        try:
+            return future.result(timeout=timeout)
+        except TimeoutError:
+            future.cancel()
+            raise
 
     def configure_logging(self, config: Dict[str, Any]) -> None:
         """Configure logging from MATLAB settings.
@@ -297,6 +324,23 @@ class MatlabBridge:
             allowed_tools: List of allowed tools (CLI mode only)
             resume_session: Whether to resume session
         """
+        # Guard: Don't start new async operations if shutting down
+        with self._shutdown_lock:
+            if self._shutdown_requested:
+                # Set immediate completion with error
+                with self._async_lock:
+                    self._async_response = {
+                        'text': '',
+                        'images': [],
+                        'success': False,
+                        'error': 'Bridge is shutting down',
+                        'session_id': '',
+                        'agent_name': '',
+                        'routing_reason': ''
+                    }
+                    self._async_complete = True
+                return
+
         prompt = str(prompt) if prompt else ""
         context = str(context) if context else ""
 
@@ -566,6 +610,120 @@ class MatlabBridge:
         """Stop any running process."""
         if self._process_manager:
             self._process_manager.stop_process()
+
+    def shutdown(self, timeout: float = 5.0) -> bool:
+        """Gracefully shutdown the bridge with timeout protection.
+
+        This method should be called when closing the MATLAB UI to ensure
+        clean shutdown without freezing MATLAB.
+
+        Args:
+            timeout: Maximum time to wait for shutdown (default 5 seconds)
+
+        Returns:
+            True if shutdown completed cleanly, False if timeout occurred
+        """
+        self._logger.info("MatlabBridge", "shutdown_started", {
+            "timeout": timeout,
+            "sdk_mode": self._use_sdk
+        })
+
+        # Set shutdown flag to prevent new async operations
+        with self._shutdown_lock:
+            self._shutdown_requested = True
+
+        # Mark any pending async as complete (so polling stops immediately)
+        with self._async_lock:
+            if not self._async_complete:
+                self._async_response = {
+                    'text': '',
+                    'images': [],
+                    'success': False,
+                    'error': 'Shutdown requested',
+                    'session_id': '',
+                    'agent_name': '',
+                    'routing_reason': ''
+                }
+                self._async_complete = True
+
+        clean_shutdown = True
+
+        # Stop agent and event loop (SDK mode)
+        if self._use_sdk:
+            clean_shutdown = self._shutdown_event_loop(timeout)
+
+        # Stop CLI process manager (fallback mode)
+        if self._process_manager:
+            self._process_manager.stop_process()
+
+        # Unregister atexit handler (we've already cleaned up)
+        if self._atexit_registered:
+            try:
+                atexit.unregister(self._cleanup_loop)
+                self._atexit_registered = False
+            except Exception:
+                pass
+
+        self._logger.info("MatlabBridge", "shutdown_complete", {
+            "clean": clean_shutdown
+        })
+
+        return clean_shutdown
+
+    def _shutdown_event_loop(self, timeout: float) -> bool:
+        """Shutdown the event loop gracefully with timeout.
+
+        Args:
+            timeout: Maximum time to wait for shutdown
+
+        Returns:
+            True if shutdown completed within timeout, False otherwise
+        """
+        if not self._loop or not self._loop.is_running():
+            return True
+
+        try:
+            # Stop agent with timeout
+            if self._agent_running and self._agent:
+                async def stop_agent_with_timeout():
+                    try:
+                        await asyncio.wait_for(
+                            self._agent.stop(),
+                            timeout=timeout * 0.6  # Use 60% of timeout for agent
+                        )
+                    except asyncio.TimeoutError:
+                        pass
+                    except Exception:
+                        pass
+
+                future = asyncio.run_coroutine_threadsafe(
+                    stop_agent_with_timeout(), self._loop
+                )
+                try:
+                    future.result(timeout=timeout * 0.7)
+                except Exception:
+                    pass
+                finally:
+                    self._agent_running = False
+
+            # Stop the event loop
+            self._loop.call_soon_threadsafe(self._loop.stop)
+
+            # Wait for loop thread to finish
+            if self._loop_thread and self._loop_thread.is_alive():
+                self._loop_thread.join(timeout=timeout * 0.3)
+                if self._loop_thread.is_alive():
+                    # Timeout - loop thread still running, but don't block
+                    self._logger.warn("MatlabBridge", "event_loop_thread_timeout", {})
+                    return False
+
+            return True
+
+        except Exception as e:
+            self._logger.error("MatlabBridge", "shutdown_event_loop_error", {
+                "error": str(e)
+            })
+            return False
 
     def register_agent(self, agent: Any) -> None:
         """Register a local interceptor agent.

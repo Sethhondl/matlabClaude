@@ -63,11 +63,25 @@ classdef ChatUIController < handle
         function delete(obj)
             %DELETE Destructor
 
-            % Stop polling timer
+            obj.stopPolling();
+        end
+
+        function stopPolling(obj)
+            %STOPPOLLING Stop the polling timer safely
+            %
+            %   This method can be called externally before shutdown to prevent
+            %   race conditions between polling callbacks and cleanup.
+
             if ~isempty(obj.PollingTimer) && isvalid(obj.PollingTimer)
-                stop(obj.PollingTimer);
-                delete(obj.PollingTimer);
+                try
+                    stop(obj.PollingTimer);
+                    delete(obj.PollingTimer);
+                catch
+                    % Ignore errors during cleanup
+                end
+                obj.PollingTimer = [];
             end
+            obj.IsStreaming = false;
         end
 
         function sendAssistantMessage(obj, content)
