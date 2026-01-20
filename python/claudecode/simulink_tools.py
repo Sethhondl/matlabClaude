@@ -5,13 +5,32 @@ These tools allow Claude to query and modify Simulink models through
 the MATLAB Engine API.
 """
 
+import base64
+import os
+import tempfile
+import time
 from typing import Any, Dict
 
 from claude_agent_sdk import tool
 from .matlab_engine import get_engine
+from .matlab_tools import get_headless_mode
+from .image_queue import push_image
 from .logger import get_logger
 
 _logger = get_logger()
+
+
+def _load_model_headless(engine, model: str) -> None:
+    """Load a Simulink model, optionally in headless mode.
+
+    Args:
+        engine: MATLAB engine instance
+        model: Model name to load
+    """
+    engine.eval(f"load_system('{model}')", capture_output=False)
+    if get_headless_mode():
+        # Prevent the model window from opening
+        engine.eval(f"set_param('{model}', 'Open', 'off')", capture_output=False)
 
 
 @tool(
@@ -38,8 +57,8 @@ async def simulink_query(args: Dict[str, Any]) -> Dict[str, Any]:
         if not engine.is_connected:
             engine.connect()
 
-        # Ensure model is loaded
-        engine.eval(f"load_system('{model}')", capture_output=False)
+        # Ensure model is loaded (headless if setting is enabled)
+        _load_model_headless(engine, model)
 
         if query_type == "info":
             # Get basic model info
@@ -164,8 +183,8 @@ async def simulink_modify(args: Dict[str, Any]) -> Dict[str, Any]:
         if not engine.is_connected:
             engine.connect()
 
-        # Ensure model is loaded
-        engine.eval(f"load_system('{model}')", capture_output=False)
+        # Ensure model is loaded (headless if setting is enabled)
+        _load_model_headless(engine, model)
 
         if action == "add_block":
             source = params.get("source", "")
@@ -271,8 +290,8 @@ async def simulink_layout(args: Dict[str, Any]) -> Dict[str, Any]:
         if not engine.is_connected:
             engine.connect()
 
-        # Ensure model is loaded
-        engine.eval(f"load_system('{model}')", capture_output=False)
+        # Ensure model is loaded (headless if setting is enabled)
+        _load_model_headless(engine, model)
 
         if action == "optimize":
             # Use custom layout engine for optimal arrangement
@@ -332,5 +351,119 @@ async def simulink_layout(args: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+@tool(
+    "simulink_capture",
+    "Capture a Simulink model or subsystem diagram as an image for display in chat. Use this to show the user what a model looks like without opening a window on their desktop.",
+    {"model": str, "subsystem": str, "format": str}
+)
+async def simulink_capture(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Capture Simulink model/subsystem diagram as base64 image.
+
+    Args (from args dict):
+        model: Name of the Simulink model to capture
+        subsystem: Optional path to a specific subsystem (e.g., "MyModel/Controller")
+        format: Image format, either "png" (default) or "svg"
+
+    Returns:
+        Dict with image content block for display in chat
+    """
+    engine = get_engine()
+    model = str(args.get("model", ""))
+    subsystem = args.get("subsystem", "")
+    fmt = args.get("format", "png")
+
+    start_time = time.perf_counter()
+    _logger.debug("simulink_tools", "capture_called", {
+        "model": model,
+        "subsystem": subsystem,
+        "format": fmt
+    })
+
+    if not model:
+        return {
+            "content": [{"type": "text", "text": "Error: Model name required"}],
+            "isError": True
+        }
+
+    try:
+        if not engine.is_connected:
+            engine.connect()
+
+        # Load model in headless mode
+        _load_model_headless(engine, model)
+
+        # Determine what to capture (model or subsystem)
+        capture_target = subsystem if subsystem else model
+
+        # Create temporary file for the image
+        with tempfile.NamedTemporaryFile(suffix=f".{fmt}", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            # Use print command to capture the diagram
+            # -s flag specifies the system to capture
+            if fmt == "png":
+                engine.eval(
+                    f"print('-s{capture_target}', '-dpng', '-r150', '{tmp_path}')",
+                    capture_output=False
+                )
+            else:
+                engine.eval(
+                    f"print('-s{capture_target}', '-dsvg', '{tmp_path}')",
+                    capture_output=False
+                )
+
+            # Read and encode the image
+            with open(tmp_path, "rb") as f:
+                image_data = f.read()
+
+            base64_image = base64.b64encode(image_data).decode("utf-8")
+            media_type = "image/png" if fmt == "png" else "image/svg+xml"
+
+            image_block = {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": base64_image
+                }
+            }
+
+            # Push to the image queue for direct delivery to UI
+            push_image(image_block)
+
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            _logger.info_timed("simulink_tools", "diagram_captured", {
+                "model": model,
+                "subsystem": subsystem,
+                "format": fmt,
+                "image_size_bytes": len(image_data)
+            }, duration_ms)
+
+            # Build descriptive text
+            target_desc = f"subsystem '{subsystem}'" if subsystem else f"model '{model}'"
+            return {
+                "content": [
+                    image_block,
+                    {"type": "text", "text": f"Captured diagram of {target_desc}."}
+                ]
+            }
+
+        finally:
+            # Clean up temp file
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    except Exception as e:
+        _logger.error("simulink_tools", "capture_error", {
+            "model": model,
+            "error": str(e)
+        })
+        return {
+            "content": [{"type": "text", "text": f"Simulink Capture Error: {str(e)}"}],
+            "isError": True
+        }
+
+
 # List of all Simulink tools for easy importing
-SIMULINK_TOOLS = [simulink_query, simulink_modify, simulink_layout]
+SIMULINK_TOOLS = [simulink_query, simulink_modify, simulink_layout, simulink_capture]
