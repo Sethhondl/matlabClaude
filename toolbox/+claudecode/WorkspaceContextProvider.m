@@ -18,18 +18,26 @@ classdef WorkspaceContextProvider < handle
                        'uint8', 'uint16', 'uint32', 'uint64'}
     end
 
+    properties (Access = private)
+        Logger                      % Logging instance
+    end
+
     methods
         function obj = WorkspaceContextProvider()
             %WORKSPACECONTEXTPROVIDER Constructor
+            obj.Logger = claudecode.logging.Logger.getInstance();
         end
 
         function context = getWorkspaceContext(obj)
             %GETWORKSPACECONTEXT Get formatted workspace context
 
+            startTime = tic;
+
             % Get all base workspace variables
             vars = evalin('base', 'whos');
 
             if isempty(vars)
+                obj.Logger.debug('WorkspaceContextProvider', 'workspace_empty');
                 context = '## MATLAB Workspace: (empty)';
                 return;
             end
@@ -68,6 +76,12 @@ classdef WorkspaceContextProvider < handle
             end
 
             context = strjoin(lines, newline);
+
+            elapsedMs = toc(startTime) * 1000;
+            obj.Logger.infoTimed('WorkspaceContextProvider', 'context_generated', struct(...
+                'variable_count', count, ...
+                'total_variables', length(vars), ...
+                'context_length', strlength(context)), elapsedMs);
         end
 
         function summary = getWorkspaceSummary(obj)

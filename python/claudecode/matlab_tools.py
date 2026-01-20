@@ -8,11 +8,15 @@ in-process MCP tools that Claude can use autonomously.
 import base64
 import tempfile
 import os
+import time
 from typing import Any, Dict
 
 from claude_agent_sdk import tool
 from .matlab_engine import get_engine
 from .image_queue import push_image
+from .logger import get_logger
+
+_logger = get_logger()
 
 
 def _get_figure_handles(engine) -> set:
@@ -157,7 +161,15 @@ async def matlab_execute(args: Dict[str, Any]) -> Dict[str, Any]:
     capture_figures = args.get("capture_figures", True)
     format_output = args.get("format_output", True)
 
+    start_time = time.perf_counter()
+    _logger.debug("matlab_tools", "execute_called", {
+        "code_length": len(code),
+        "capture_output": capture,
+        "capture_figures": capture_figures
+    })
+
     if not code.strip():
+        _logger.warn("matlab_tools", "execute_empty_code")
         return {
             "content": [{"type": "text", "text": "Error: No code provided"}],
             "isError": True
@@ -183,18 +195,31 @@ async def matlab_execute(args: Dict[str, Any]) -> Dict[str, Any]:
         content = [{"type": "text", "text": result}]
 
         # Capture any new figures
+        figures_captured = 0
         if capture_figures:
             new_figs = _get_figure_handles(engine) - existing_figs
             for fig_handle in sorted(new_figs):
                 try:
                     image_block = _capture_figure(engine, fig_handle, close_after=True)
                     content.append(image_block)
+                    figures_captured += 1
                 except Exception as e:
                     content.append({"type": "text", "text": f"Failed to capture figure {fig_handle}: {e}"})
+
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        _logger.info_timed("matlab_tools", "execute_complete", {
+            "result_length": len(result),
+            "figures_captured": figures_captured
+        }, duration_ms)
 
         return {"content": content}
 
     except Exception as e:
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        _logger.error("matlab_tools", "execute_error", {
+            "error": str(e),
+            "code_length": len(code)
+        })
         return {
             "content": [{"type": "text", "text": f"MATLAB Error: {str(e)}"}],
             "isError": True
@@ -212,6 +237,11 @@ async def matlab_workspace(args: Dict[str, Any]) -> Dict[str, Any]:
     action = str(args.get("action", "list"))
     variable = args.get("variable", "")
     value = args.get("value")
+
+    _logger.debug("matlab_tools", "workspace_called", {
+        "action": action,
+        "variable": variable if action != "write" else "<redacted>"
+    })
 
     try:
         if not engine.is_connected:
@@ -281,6 +311,12 @@ async def matlab_plot(args: Dict[str, Any]) -> Dict[str, Any]:
     code = str(args.get("code", ""))
     fmt = args.get("format", "png")
 
+    start_time = time.perf_counter()
+    _logger.debug("matlab_tools", "plot_called", {
+        "code_length": len(code),
+        "format": fmt
+    })
+
     if not code.strip():
         return {
             "content": [{"type": "text", "text": "Error: No plotting code provided"}],
@@ -328,6 +364,12 @@ async def matlab_plot(args: Dict[str, Any]) -> Dict[str, Any]:
             # Push to the image queue for direct delivery to UI
             push_image(image_block)
 
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            _logger.info_timed("matlab_tools", "figure_captured", {
+                "format": fmt,
+                "image_size_bytes": len(image_data)
+            }, duration_ms)
+
             return {
                 "content": [
                     image_block,
@@ -341,6 +383,9 @@ async def matlab_plot(args: Dict[str, Any]) -> Dict[str, Any]:
                 os.remove(tmp_path)
 
     except Exception as e:
+        _logger.error("matlab_tools", "plot_error", {
+            "error": str(e)
+        })
         return {
             "content": [{"type": "text", "text": f"MATLAB Plot Error: {str(e)}"}],
             "isError": True

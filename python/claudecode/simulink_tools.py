@@ -9,6 +9,9 @@ from typing import Any, Dict
 
 from claude_agent_sdk import tool
 from .matlab_engine import get_engine
+from .logger import get_logger
+
+_logger = get_logger()
 
 
 @tool(
@@ -22,6 +25,8 @@ async def simulink_query(args: Dict[str, Any]) -> Dict[str, Any]:
     model = str(args.get("model", ""))
     query_type = str(args.get("query_type", "blocks"))
     block_path = args.get("block_path", "")
+
+    _logger.debug("simulink_tools", "model_query", {"model": model, "query_type": query_type, "block_path": block_path})
 
     if not model:
         return {
@@ -140,6 +145,8 @@ async def simulink_modify(args: Dict[str, Any]) -> Dict[str, Any]:
     model = str(args.get("model", ""))
     action = str(args.get("action", ""))
     params = args.get("params", {})
+
+    _logger.info("simulink_tools", "model_modify", {"model": model, "action": action})
 
     if not model:
         return {

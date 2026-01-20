@@ -9,6 +9,7 @@ plotting, and Simulink interaction.
 import asyncio
 import os
 import shutil
+import time
 from typing import Optional, AsyncIterator, Dict, Any, List, TYPE_CHECKING
 
 from claude_agent_sdk import (
@@ -16,6 +17,8 @@ from claude_agent_sdk import (
     ClaudeAgentOptions,
     create_sdk_mcp_server,
 )
+
+from .logger import get_logger
 
 if TYPE_CHECKING:
     from .agents.specialized_agent import AgentConfig
@@ -77,9 +80,37 @@ MATLAB_SYSTEM_PROMPT = """You are an expert MATLAB and Simulink assistant. You h
 8. **List Files** (file_list): List directory contents with glob pattern support
 9. **Create Directories** (file_mkdir): Create directories in MATLAB's current directory
 
-When helping users:
+## When to Fetch Context
+
+**Proactively fetch workspace context** when the user:
+- Asks about "my data", "my variables", or "what I have"
+- Wants to plot, analyze, or process existing data
+- References variables by name without defining them
+- Asks questions that require understanding the current workspace state
+
+To check the workspace:
+- `matlab_workspace` with action "list" → see all variables with types and sizes
+- `matlab_workspace` with action "read" and variable name → get specific variable values
+
+**Proactively fetch Simulink context** when the user:
+- Asks about "my model", "the model", or "my Simulink system"
+- Wants to modify, analyze, or understand a Simulink model
+- References blocks, signals, or connections
+- Asks questions about system structure or parameters
+
+To explore Simulink models:
+- `simulink_query` with query_type "info" → model overview
+- `simulink_query` with query_type "blocks" → list all blocks
+- `simulink_query` with query_type "connections" → signal routing
+
+**Do NOT fetch context** when:
+- The user asks general MATLAB/Simulink questions (e.g., "how do I create a matrix?")
+- The question doesn't reference user-specific data or models
+- You've already fetched the relevant context in this conversation
+
+## General Guidelines
+
 - Use the matlab_execute tool to run MATLAB commands
-- Check the workspace with matlab_workspace to understand what variables exist
 - Create visualizations with matlab_plot when asked for plots or figures
 - For Simulink tasks, first query the model structure before making modifications
 - Use file_read to examine existing code, file_write to create or update files
@@ -110,7 +141,8 @@ class MatlabAgent:
         include_file_tools: bool = True,
         max_turns: Optional[int] = None,
         thinking_budget: Optional[int] = None,
-        custom_allowed_tools: Optional[List[str]] = None
+        custom_allowed_tools: Optional[List[str]] = None,
+        model: Optional[str] = None
     ):
         """Initialize the MATLAB agent.
 
@@ -120,14 +152,17 @@ class MatlabAgent:
             max_turns: Maximum conversation turns (None for unlimited)
             thinking_budget: Extended thinking token budget (None for standard)
             custom_allowed_tools: Override default tool list (None for all tools)
+            model: Claude model ID (uses SDK default if None)
         """
         self.system_prompt = system_prompt or MATLAB_SYSTEM_PROMPT
         self.include_file_tools = include_file_tools
         self.max_turns = max_turns
         self.thinking_budget = thinking_budget
         self._custom_allowed_tools = custom_allowed_tools
+        self.model = model
         self.client: Optional[ClaudeSDKClient] = None
         self._session_id: Optional[str] = None
+        self._logger = get_logger()
 
         # Conversation memory tracking
         self._turn_count = 0
@@ -197,6 +232,10 @@ class MatlabAgent:
         if self.thinking_budget:
             options.thinking_budget = self.thinking_budget
 
+        # Add model if specified
+        if self.model:
+            options.model = self.model
+
         return options
 
     @classmethod
@@ -232,31 +271,57 @@ class MatlabAgent:
             RuntimeError: If Claude CLI is not found
             RuntimeError: If SDK client fails to start
         """
+        start_time = time.perf_counter()
+        self._logger.info("MatlabAgent", "agent_starting", {
+            "model": self.model,
+            "include_file_tools": self.include_file_tools,
+            "max_turns": self.max_turns
+        })
+
         # Connect to MATLAB engine
         try:
             engine = get_engine()
             if not engine.is_connected:
                 engine.connect()
         except Exception as e:
+            self._logger.error("MatlabAgent", "matlab_engine_failed", {
+                "error": str(e)
+            })
             raise RuntimeError(f"Failed to connect to MATLAB engine: {e}") from e
 
         # Create and start SDK client
         try:
             options = self._get_options()
         except Exception as e:
+            self._logger.error("MatlabAgent", "agent_options_failed", {
+                "error": str(e)
+            })
             raise RuntimeError(f"Failed to configure agent options: {e}") from e
 
         try:
             self.client = ClaudeSDKClient(options=options)
             await self.client.__aenter__()
+
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            self._logger.info_timed("MatlabAgent", "agent_started", {
+                "model": self.model,
+                "tools_count": len(self.allowed_tools)
+            }, duration_ms)
         except Exception as e:
+            self._logger.error("MatlabAgent", "sdk_client_failed", {
+                "error": str(e)
+            })
             raise RuntimeError(f"Failed to start Claude SDK client: {e}") from e
 
     async def stop(self) -> None:
         """Stop the agent client."""
         if self.client:
+            self._logger.info("MatlabAgent", "agent_stopping", {
+                "turn_count": self._turn_count
+            })
             await self.client.__aexit__(None, None, None)
             self.client = None
+            self._logger.debug("MatlabAgent", "agent_stopped")
 
     async def _create_message_stream(self, prompt: str):
         """Create an async message generator for streaming input."""
@@ -343,6 +408,12 @@ class MatlabAgent:
         if not self.client:
             raise RuntimeError("Agent not started. Call start() first.")
 
+        start_time = time.perf_counter()
+        self._logger.info("MatlabAgent", "query_started", {
+            "prompt_length": len(prompt),
+            "turn_count": self._turn_count
+        })
+
         result = {
             'text': '',
             'images': [],
@@ -395,6 +466,13 @@ class MatlabAgent:
                 if hasattr(message, 'session_id'):
                     result['session_id'] = message.session_id
                     self._session_id = message.session_id
+
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        self._logger.info_timed("MatlabAgent", "query_complete", {
+            "response_length": len(result['text']),
+            "image_count": len(result['images']),
+            "tool_use_count": len(result['tool_uses'])
+        }, duration_ms)
 
         return result
 

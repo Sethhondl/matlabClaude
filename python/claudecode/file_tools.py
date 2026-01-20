@@ -13,6 +13,9 @@ from typing import Any, Dict, List
 
 from claude_agent_sdk import tool
 from .matlab_engine import get_engine
+from .logger import get_logger
+
+_logger = get_logger()
 
 
 # Dangerous file extensions that should not be written
@@ -140,6 +143,8 @@ async def file_read(args: Dict[str, Any]) -> Dict[str, Any]:
     max_lines = args.get("max_lines", DEFAULT_MAX_LINES)
     offset = args.get("offset", 0)
 
+    _logger.debug("file_tools", "file_read", {"path": path, "max_lines": max_lines, "offset": offset})
+
     if not path:
         return {
             "content": [{"type": "text", "text": "Error: No path provided"}],
@@ -218,6 +223,8 @@ async def file_write(args: Dict[str, Any]) -> Dict[str, Any]:
     content = str(args.get("content", ""))
     overwrite = args.get("overwrite", False)
 
+    _logger.info("file_tools", "file_write", {"path": path, "content_length": len(content), "overwrite": overwrite})
+
     if not path:
         return {
             "content": [{"type": "text", "text": "Error: No path provided"}],
@@ -285,6 +292,8 @@ async def file_list(args: Dict[str, Any]) -> Dict[str, Any]:
     path = str(args.get("path", "."))
     pattern = args.get("pattern", "*")
     recursive = args.get("recursive", False)
+
+    _logger.debug("file_tools", "dir_list", {"path": path, "pattern": pattern, "recursive": recursive})
 
     try:
         base_dir = _get_matlab_pwd()

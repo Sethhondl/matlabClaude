@@ -28,11 +28,14 @@ classdef CodeExecutor < handle
 
     properties (Access = private)
         ExecutionLog = {}   % Log of executed code and results
+        Logger              % Structured logger instance
     end
 
     methods
         function obj = CodeExecutor()
             %CODEEXECUTOR Constructor
+
+            obj.Logger = claudecode.logging.Logger.getInstance();
         end
 
         function [result, isError] = execute(obj, code)
@@ -44,6 +47,12 @@ classdef CodeExecutor < handle
             %       result: Output text or error message
             %       isError: true if execution failed or was blocked
 
+            startTime = tic;
+            codeLength = strlength(code);
+
+            obj.Logger.debug('CodeExecutor', 'validation_started', struct(...
+                'code_length', codeLength));
+
             % Validate code before execution
             [isValid, reason] = obj.validateCode(code);
 
@@ -51,19 +60,30 @@ classdef CodeExecutor < handle
                 result = sprintf('Code blocked: %s', reason);
                 isError = true;
                 obj.logExecution(code, result, true, 'blocked');
+
+                obj.Logger.warn('CodeExecutor', 'code_blocked', struct(...
+                    'reason', reason, ...
+                    'code_length', codeLength));
                 return;
             end
 
             % Check if approval is required
             if obj.RequireApproval
+                obj.Logger.debug('CodeExecutor', 'approval_requested');
+
                 approved = obj.requestApproval(code, 'Code execution requested');
                 if ~approved
                     result = 'Code execution cancelled by user';
                     isError = true;
                     obj.logExecution(code, result, true, 'cancelled');
+
+                    obj.Logger.info('CodeExecutor', 'execution_cancelled_by_user');
                     return;
                 end
             end
+
+            obj.Logger.info('CodeExecutor', 'execution_started', struct(...
+                'code_length', codeLength));
 
             % Execute with timeout protection
             try
@@ -71,10 +91,20 @@ classdef CodeExecutor < handle
                 isError = false;
                 obj.logExecution(code, result, false, 'success');
 
+                elapsedMs = toc(startTime) * 1000;
+                obj.Logger.infoTimed('CodeExecutor', 'execution_complete', struct(...
+                    'code_length', codeLength, ...
+                    'result_length', strlength(result)), elapsedMs);
+
             catch ME
                 result = obj.formatError(ME);
                 isError = true;
                 obj.logExecution(code, result, true, 'error');
+
+                elapsedMs = toc(startTime) * 1000;
+                obj.Logger.errorTimed('CodeExecutor', 'execution_error', struct(...
+                    'error_id', ME.identifier, ...
+                    'error_message', ME.message), elapsedMs);
             end
         end
 

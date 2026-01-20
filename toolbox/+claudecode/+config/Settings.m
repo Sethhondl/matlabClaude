@@ -31,6 +31,14 @@ classdef Settings < handle
         % History Settings
         maxHistoryLength = 100              % Max messages to keep
         saveHistory = true                  % Persist chat history
+
+        % Logging Settings
+        loggingEnabled = true               % Master switch for logging
+        logLevel = 'INFO'                   % ERROR, WARN, INFO, DEBUG, TRACE
+        logDirectory = ''                   % Empty = default logs/ in project
+        logSensitiveData = true             % Include full messages/code for reconstruction
+        logMaxFileSize = 10485760           % 10 MB rotation threshold
+        logMaxFiles = 10                    % Keep last N log files
     end
 
     properties (Constant, Access = private)

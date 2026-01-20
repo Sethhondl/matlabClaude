@@ -14,9 +14,14 @@ classdef SimulinkBridge < handle
         ModelHandle = []        % Handle to current model
     end
 
+    properties (Access = private)
+        Logger                  % Logging instance
+    end
+
     methods
         function obj = SimulinkBridge()
             %SIMULINKBRIDGE Constructor
+            obj.Logger = claudecode.logging.Logger.getInstance();
         end
 
         %% Model Discovery and Selection
@@ -36,6 +41,8 @@ classdef SimulinkBridge < handle
             %
             %   success = bridge.setCurrentModel('myModel')
 
+            obj.Logger.info('SimulinkBridge', 'model_selected', struct('model', modelName));
+
             try
                 % Check if model exists/is loaded
                 if ~bdIsLoaded(modelName)
@@ -46,7 +53,11 @@ classdef SimulinkBridge < handle
                 obj.ModelHandle = get_param(modelName, 'Handle');
                 success = true;
 
+                obj.Logger.debug('SimulinkBridge', 'model_loaded', struct('model', modelName));
+
             catch ME
+                obj.Logger.warn('SimulinkBridge', 'model_load_failed', struct(...
+                    'model', modelName, 'error', ME.message));
                 warning('SimulinkBridge:ModelError', ...
                     'Could not set model: %s', ME.message);
                 success = false;
@@ -232,10 +243,13 @@ classdef SimulinkBridge < handle
         function contextStr = buildSimulinkContext(obj)
             %BUILDSIMULINKCONTEXT Build formatted context string for Claude
 
+            startTime = tic;
+
             if isempty(obj.CurrentModel)
                 % Try to find an open model
                 models = obj.getOpenModels();
                 if isempty(models)
+                    obj.Logger.debug('SimulinkBridge', 'no_models_open');
                     contextStr = '## Simulink: No models open';
                     return;
                 end
@@ -245,6 +259,7 @@ classdef SimulinkBridge < handle
             context = obj.extractModelContext();
 
             if isfield(context, 'error')
+                obj.Logger.warn('SimulinkBridge', 'context_extraction_error', struct('error', context.error));
                 contextStr = sprintf('## Simulink Error: %s', context.error);
                 return;
             end
@@ -297,6 +312,12 @@ classdef SimulinkBridge < handle
             end
 
             contextStr = strjoin(lines, newline);
+
+            elapsedMs = toc(startTime) * 1000;
+            obj.Logger.infoTimed('SimulinkBridge', 'context_extracted', struct(...
+                'model', context.name, ...
+                'block_count', length(context.blocks), ...
+                'connection_count', length(context.connections)), elapsedMs);
         end
 
         %% Model Modification

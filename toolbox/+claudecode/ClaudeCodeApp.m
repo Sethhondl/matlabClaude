@@ -23,6 +23,8 @@ classdef ClaudeCodeApp < handle
 
     properties (SetAccess = private)
         Settings            % Configuration settings
+        Logger              % Logging instance
+        SessionId           % Session identifier for log correlation
     end
 
     properties (Access = private)
@@ -31,6 +33,7 @@ classdef ClaudeCodeApp < handle
         PythonBridge        % Python MatlabBridge instance
         SimulinkBridge      % SimulinkBridge instance
         IsOpen = false      % Whether the app is open
+        StartTime           % App start time for session duration
     end
 
     properties (Constant, Access = private)
@@ -47,9 +50,20 @@ classdef ClaudeCodeApp < handle
         function obj = ClaudeCodeApp()
             %CLAUDECODEAPP Constructor
 
+            obj.StartTime = datetime('now');
             obj.Settings = obj.loadSettings();
             obj.IsDocked = obj.Settings.dockWindow;
+
+            % Initialize logging system
+            obj.initializeLogging();
+
             obj.initialize();
+
+            % Log app initialization
+            obj.Logger.info('ClaudeCodeApp', 'app_initialized', struct(...
+                'version', obj.getVersion(), ...
+                'settings', obj.getLoggableSettings(), ...
+                'matlab_version', version));
         end
 
         function delete(obj)
@@ -63,22 +77,42 @@ classdef ClaudeCodeApp < handle
 
             if obj.IsOpen && ~isempty(obj.Figure) && isvalid(obj.Figure)
                 % Already open, bring to front
+                obj.Logger.debug('ClaudeCodeApp', 'launch_already_open');
                 figure(obj.Figure);
                 return;
             end
 
+            obj.Logger.info('ClaudeCodeApp', 'launch_started');
+
             % Verify Claude CLI is available via Python
             if ~obj.PythonBridge.is_claude_available()
+                obj.Logger.warn('ClaudeCodeApp', 'claude_cli_not_found');
                 obj.showSetupInstructions();
                 return;
             end
 
             obj.createWindow();
             obj.IsOpen = true;
+
+            obj.Logger.info('ClaudeCodeApp', 'launch_complete', struct(...
+                'is_docked', obj.IsDocked));
         end
 
         function close(obj)
             %CLOSE Close the application
+
+            % Calculate session duration
+            sessionDurationSec = 0;
+            if ~isempty(obj.StartTime)
+                sessionDurationSec = seconds(datetime('now') - obj.StartTime);
+            end
+
+            % Log app closure
+            if ~isempty(obj.Logger) && isvalid(obj.Logger)
+                obj.Logger.info('ClaudeCodeApp', 'app_closed', struct(...
+                    'session_duration_sec', sessionDurationSec));
+                obj.Logger.close();
+            end
 
             % Stop Python process
             if ~isempty(obj.PythonBridge)
@@ -163,8 +197,22 @@ classdef ClaudeCodeApp < handle
             % Add Python package to path
             obj.setupPythonPath();
 
-            % Create Python bridge
+            % Create Python bridge and configure logging
             obj.PythonBridge = py.claudecode.MatlabBridge();
+
+            % Pass session ID and logging config to Python for correlation
+            try
+                loggingConfig = py.dict(pyargs(...
+                    'session_id', obj.SessionId, ...
+                    'enabled', obj.Settings.loggingEnabled, ...
+                    'level', obj.Settings.logLevel, ...
+                    'log_directory', obj.Settings.logDirectory, ...
+                    'log_sensitive_data', obj.Settings.logSensitiveData));
+                obj.PythonBridge.configure_logging(loggingConfig);
+            catch ME
+                obj.Logger.warn('ClaudeCodeApp', 'python_logging_config_failed', struct(...
+                    'error', ME.message));
+            end
 
             % Create Simulink bridge (MATLAB-side)
             obj.SimulinkBridge = claudecode.SimulinkBridge();
@@ -253,6 +301,71 @@ classdef ClaudeCodeApp < handle
             settings.autoIncludeSimulink = false;
             settings.maxHistoryLength = 100;
             settings.dockWindow = true;  % Dock into MATLAB desktop by default
+
+            % Load full settings if available
+            try
+                fullSettings = claudecode.config.Settings.load();
+                settings.loggingEnabled = fullSettings.loggingEnabled;
+                settings.logLevel = fullSettings.logLevel;
+                settings.logDirectory = fullSettings.logDirectory;
+                settings.logSensitiveData = fullSettings.logSensitiveData;
+                settings.logMaxFileSize = fullSettings.logMaxFileSize;
+                settings.logMaxFiles = fullSettings.logMaxFiles;
+            catch
+                % Use defaults if settings unavailable
+                settings.loggingEnabled = true;
+                settings.logLevel = 'INFO';
+                settings.logDirectory = '';
+                settings.logSensitiveData = true;
+                settings.logMaxFileSize = 10485760;
+                settings.logMaxFiles = 10;
+            end
+        end
+
+        function initializeLogging(obj)
+            %INITIALIZELOGGING Initialize the logging system
+
+            % Get the singleton logger
+            obj.Logger = claudecode.logging.Logger.getInstance();
+
+            % Configure from settings
+            obj.Logger.setLevel(obj.Settings.logLevel);
+
+            if obj.Settings.loggingEnabled
+                obj.Logger.enable();
+            else
+                obj.Logger.disable();
+            end
+
+            % Apply other settings via config
+            config = obj.Logger.getConfig();
+            config.LogSensitiveData = obj.Settings.logSensitiveData;
+            config.MaxFileSize = obj.Settings.logMaxFileSize;
+            config.MaxFiles = obj.Settings.logMaxFiles;
+
+            if ~isempty(obj.Settings.logDirectory) && obj.Settings.logDirectory ~= ""
+                config.LogDirectory = obj.Settings.logDirectory;
+            end
+
+            % Store session ID for correlation
+            obj.SessionId = config.SessionId;
+        end
+
+        function ver = getVersion(~)
+            %GETVERSION Get application version string
+
+            ver = '1.0.0';  % TODO: Read from version file or constant
+        end
+
+        function s = getLoggableSettings(obj)
+            %GETLOGGABLESETTINGS Get settings safe for logging
+
+            s = struct(...
+                'theme', obj.Settings.theme, ...
+                'autoIncludeWorkspace', obj.Settings.autoIncludeWorkspace, ...
+                'autoIncludeSimulink', obj.Settings.autoIncludeSimulink, ...
+                'loggingEnabled', obj.Settings.loggingEnabled, ...
+                'logLevel', obj.Settings.logLevel);
         end
     end
 

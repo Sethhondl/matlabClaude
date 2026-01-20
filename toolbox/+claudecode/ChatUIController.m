@@ -21,11 +21,14 @@ classdef ChatUIController < handle
         HTMLComponent       % uihtml component
         IsReady = false     % Whether UI has initialized
         PollingTimer        % Timer for polling async responses
+        Logger              % Logging instance
 
         % State
         Messages = {}       % Cell array of message structs
         IsStreaming = false % Whether currently streaming
         CurrentStreamText = '' % Accumulated text during streaming
+        CurrentTraceId = '' % Trace ID for correlating streaming events
+        StreamChunkCount = 0 % Count of stream chunks for current message
 
         % Polling timeout
         PollingStartTime    % Time when polling started
@@ -50,8 +53,11 @@ classdef ChatUIController < handle
             obj.PythonBridge = pythonBridge;
             obj.CodeExecutor = claudecode.CodeExecutor();
             obj.WorkspaceProvider = claudecode.WorkspaceContextProvider();
+            obj.Logger = claudecode.logging.Logger.getInstance();
 
             obj.createUI();
+
+            obj.Logger.info('ChatUIController', 'controller_initialized');
         end
 
         function delete(obj)
@@ -77,19 +83,32 @@ classdef ChatUIController < handle
 
             obj.IsStreaming = true;
             obj.CurrentStreamText = '';
+            obj.StreamChunkCount = 0;
             obj.updateStatus('streaming', 'Claude is thinking...');
             obj.sendToJS('startStreaming', struct());
+
+            obj.Logger.info('ChatUIController', 'stream_started', struct(), ...
+                'TraceId', obj.CurrentTraceId);
         end
 
         function sendStreamChunk(obj, chunk)
             %SENDSTREAMCHUNK Append a streaming text chunk
 
             obj.CurrentStreamText = [obj.CurrentStreamText, chunk];
+            obj.StreamChunkCount = obj.StreamChunkCount + 1;
             obj.sendToJS('streamChunk', struct('text', chunk));
+
+            % Log at TRACE level to avoid log bloat
+            obj.Logger.trace('ChatUIController', 'stream_chunk', struct(...
+                'chunk_size', strlength(chunk), ...
+                'chunk_number', obj.StreamChunkCount), ...
+                'TraceId', obj.CurrentTraceId);
         end
 
         function endStreaming(obj)
             %ENDSTREAMING Signal end of streaming response
+
+            responseLength = strlength(obj.CurrentStreamText);
 
             if ~isempty(obj.CurrentStreamText)
                 % Store in history without sending to UI (JS finalizeStreamingMessage handles UI)
@@ -100,6 +119,11 @@ classdef ChatUIController < handle
             obj.CurrentStreamText = '';
             obj.updateStatus('ready', 'Ready');
             obj.sendToJS('endStreaming', struct());
+
+            obj.Logger.info('ChatUIController', 'stream_complete', struct(...
+                'response_length', responseLength, ...
+                'total_chunks', obj.StreamChunkCount), ...
+                'TraceId', obj.CurrentTraceId);
         end
 
         function sendError(obj, message)
@@ -190,6 +214,7 @@ classdef ChatUIController < handle
             %ONUSERMESSAGE Handle user message from UI
 
             if obj.IsStreaming
+                obj.Logger.debug('ChatUIController', 'message_ignored_streaming');
                 return;
             end
 
@@ -221,6 +246,9 @@ classdef ChatUIController < handle
 
             if agentResult.handled
                 % Agent handled it - show response directly
+                obj.Logger.info('ChatUIController', 'agent_handled', struct(...
+                    'agent_name', char(agentResult.agent_name)), ...
+                    'TraceId', obj.CurrentTraceId);
                 obj.sendAssistantMessage(char(agentResult.response));
                 return;
             end
@@ -270,6 +298,11 @@ classdef ChatUIController < handle
                     elapsedTime = toc(obj.PollingStartTime);
                     if elapsedTime > obj.MaxPollingDuration
                         % Timeout occurred - stop polling and show error
+                        obj.Logger.warn('ChatUIController', 'polling_timeout', struct(...
+                            'elapsed_seconds', elapsedTime, ...
+                            'max_duration', obj.MaxPollingDuration), ...
+                            'TraceId', obj.CurrentTraceId);
+
                         if ~isempty(obj.PollingTimer) && isvalid(obj.PollingTimer)
                             stop(obj.PollingTimer);
                             delete(obj.PollingTimer);
@@ -378,9 +411,29 @@ classdef ChatUIController < handle
             %ONRUNCODE Handle code execution request
 
             code = data.code;
+            startTime = tic;
+
+            obj.Logger.info('ChatUIController', 'code_execution_requested', struct(...
+                'code_length', strlength(code), ...
+                'block_id', data.blockId));
 
             % Execute the code (stays in MATLAB)
             [result, isError] = obj.CodeExecutor.execute(code);
+
+            elapsedMs = toc(startTime) * 1000;
+
+            % Log result
+            if isError
+                obj.Logger.warn('ChatUIController', 'code_execution_error', struct(...
+                    'block_id', data.blockId, ...
+                    'error_message', result), ...
+                    'DurationMs', elapsedMs);
+            else
+                obj.Logger.info('ChatUIController', 'code_execution_complete', struct(...
+                    'block_id', data.blockId, ...
+                    'result_length', strlength(result)), ...
+                    'DurationMs', elapsedMs);
+            end
 
             % Send result back to UI
             obj.sendToJS('codeResult', struct(...

@@ -11,10 +11,12 @@ from typing import Any, Dict, List, Optional
 import threading
 import asyncio
 import atexit
+import time
 
 from .agent_manager import AgentManager
 from .image_queue import poll_images, clear_images
 from .specialized_agent_manager import SpecializedAgentManager, RoutingResult
+from .logger import get_logger, configure_logger
 
 # Try to import the agent (requires claude-agent-sdk and Python 3.10+)
 try:
@@ -51,12 +53,16 @@ class MatlabBridge:
             use_agent_sdk: If True, use Claude Agent SDK (recommended).
                           If False or SDK unavailable, use CLI wrapper.
         """
+        self._logger = get_logger()
         self.agent_manager = AgentManager()
         self._use_sdk = use_agent_sdk and AGENT_SDK_AVAILABLE
 
         # Specialized agent manager for routing
         self._specialized_manager = SpecializedAgentManager()
         self._current_routing: Optional[RoutingResult] = None
+
+        # Model selection
+        self._current_model: str = "claude-sonnet-4-5-20250514"
 
         # Agent SDK mode
         self._agent: Optional[MatlabAgent] = None
@@ -80,10 +86,16 @@ class MatlabBridge:
 
         # Initialize based on mode
         if self._use_sdk:
-            self._agent = MatlabAgent()
+            self._agent = MatlabAgent(model=self._current_model)
             self._start_persistent_loop()
         else:
             self._process_manager = ClaudeProcessManager()
+
+        self._logger.info("MatlabBridge", "bridge_initialized", {
+            "sdk_mode": self._use_sdk,
+            "sdk_available": AGENT_SDK_AVAILABLE,
+            "model": self._current_model
+        })
 
     def _start_persistent_loop(self) -> None:
         """Start a persistent event loop in a background thread.
@@ -125,6 +137,29 @@ class MatlabBridge:
             raise RuntimeError("Event loop not running")
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return future.result()
+
+    def configure_logging(self, config: Dict[str, Any]) -> None:
+        """Configure logging from MATLAB settings.
+
+        Args:
+            config: Dict with logging settings from MATLAB:
+                - session_id: Session ID for correlation
+                - enabled: Enable/disable logging
+                - level: Log level string
+                - log_directory: Directory for log files
+                - log_sensitive_data: Whether to log sensitive data
+        """
+        configure_logger(
+            enabled=config.get("enabled", True),
+            level=config.get("level", "INFO"),
+            log_directory=config.get("log_directory") or None,
+            log_sensitive_data=config.get("log_sensitive_data", True),
+            session_id=config.get("session_id"),
+        )
+        self._logger.info("MatlabBridge", "logging_configured", {
+            "session_id": config.get("session_id", ""),
+            "level": config.get("level", "INFO")
+        })
 
     @property
     def using_agent_sdk(self) -> bool:
@@ -264,6 +299,12 @@ class MatlabBridge:
         prompt = str(prompt) if prompt else ""
         context = str(context) if context else ""
 
+        self._logger.info("MatlabBridge", "async_message_started", {
+            "prompt_length": len(prompt),
+            "context_length": len(context),
+            "sdk_mode": self._use_sdk
+        })
+
         with self._async_lock:
             self._async_response = None
             self._async_chunks = []
@@ -278,6 +319,14 @@ class MatlabBridge:
         if self._use_sdk:
             routing = self._specialized_manager.route_message(prompt, {"context": context})
             self._current_routing = routing
+
+            self._logger.info("MatlabBridge", "agent_routing", {
+                "agent_name": routing.config.name,
+                "is_explicit": routing.is_explicit,
+                "confidence": routing.confidence,
+                "reason": routing.reason
+            })
+
             # Add user message to context
             self._specialized_manager.add_message_to_context(
                 "user", prompt, routing.config.name
@@ -405,6 +454,13 @@ class MatlabBridge:
                     }
                     self._async_complete = True
 
+                self._logger.info("MatlabBridge", "async_complete", {
+                    "agent_name": agent_name,
+                    "response_length": len(response_text),
+                    "image_count": len(images),
+                    "success": True
+                })
+
                 # Add assistant response to context
                 self._specialized_manager.add_message_to_context(
                     "assistant", response_text[:500], agent_name
@@ -418,6 +474,12 @@ class MatlabBridge:
                     await agent.compact_conversation()
 
             except Exception as e:
+                self._logger.error("MatlabBridge", "async_error", {
+                    "agent_name": agent_name,
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+
                 with self._async_lock:
                     self._async_response = {
                         'text': '',
@@ -556,8 +618,34 @@ class MatlabBridge:
             await self._agent.stop()
             self._agent_running = False
 
-        # Create fresh agent instance
-        self._agent = MatlabAgent()
+        # Create fresh agent instance with current model
+        self._agent = MatlabAgent(model=self._current_model)
+
+    def update_model(self, model_name: str) -> None:
+        """Update the model for subsequent requests.
+
+        Args:
+            model_name: Claude model ID (e.g., 'claude-sonnet-4-5-20250514')
+
+        Note:
+            The model change takes effect on the next conversation reset
+            or when a new agent is created. The current conversation
+            continues with the existing model.
+        """
+        self._current_model = model_name
+
+        # If using SDK mode, we need to recreate the agent to use new model
+        # This happens automatically on next conversation reset
+        # For immediate effect on new messages, we could reset here,
+        # but that would lose conversation context, so we defer
+
+    def get_model(self) -> str:
+        """Get the currently configured model.
+
+        Returns:
+            Current model ID
+        """
+        return self._current_model
 
     def get_conversation_turns(self) -> int:
         """Get the current conversation turn count.
