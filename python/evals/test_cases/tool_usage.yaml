@@ -1,0 +1,71 @@
+version: "1.0"
+name: "Tool Usage Validation Tests"
+
+test_cases:
+  - id: "tool_001"
+    name: "Workspace inspection"
+    tags: ["tools", "workspace", "basic"]
+
+    prompt: "What variables are currently in the MATLAB workspace?"
+
+    context:
+      workspace_state:
+        existing_vars:
+          - name: "x"
+            type: "double"
+            size: "[1, 100]"
+          - name: "data"
+            type: "double"
+            size: "[10, 10]"
+
+    evaluation_criteria:
+      - "Uses the matlab_workspace tool with 'list' action"
+      - "Reports information about workspace variables"
+      - "Response mentions the variables x and data if they exist"
+
+    expected:
+      tool_usage:
+        required: ["matlab_workspace"]
+        forbidden: []
+
+    timeout: 60
+    trials: 1
+
+  - id: "tool_002"
+    name: "Code execution with output"
+    tags: ["tools", "execution", "basic"]
+
+    prompt: "Calculate 2 + 2 in MATLAB and show me the result"
+
+    evaluation_criteria:
+      - "Uses the matlab_execute tool"
+      - "The response contains the number 4"
+      - "Response explains or shows the calculation result"
+
+    expected:
+      tool_usage:
+        required: ["matlab_execute"]
+        forbidden: []
+
+    timeout: 60
+    trials: 1
+
+  - id: "tool_003"
+    name: "Plotting with matlab_plot"
+    tags: ["tools", "plotting", "intermediate"]
+
+    prompt: "Create a bar chart showing values [1, 4, 2, 5, 3]"
+
+    evaluation_criteria:
+      - "Uses matlab_execute or matlab_plot tool"
+      - "Creates a bar chart (uses 'bar' function)"
+      - "Uses the values [1, 4, 2, 5, 3]"
+      - "Response indicates the plot was created"
+
+    expected:
+      tool_usage:
+        required: ["matlab_execute"]
+        forbidden: []
+
+    timeout: 90
+    trials: 1

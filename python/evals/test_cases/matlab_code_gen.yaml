@@ -1,0 +1,113 @@
+version: "1.0"
+name: "MATLAB Code Generation Tests"
+
+test_cases:
+  - id: "matlab_gen_001"
+    name: "Simple identity matrix"
+    tags: ["matlab", "arrays", "basic"]
+
+    prompt: "Create a 5x5 identity matrix in MATLAB and store it in a variable called I"
+
+    evaluation_criteria:
+      - "Uses the eye(5) function or equivalent approach"
+      - "Code is syntactically valid MATLAB"
+      - "The response explains what an identity matrix is or what the code does"
+
+    expected:
+      tool_usage:
+        required: ["matlab_execute"]
+        forbidden: []
+
+    timeout: 60
+    trials: 1
+
+  - id: "matlab_gen_002"
+    name: "Create and populate array"
+    tags: ["matlab", "arrays", "basic"]
+
+    prompt: "Create a MATLAB vector called x with values from 0 to 10 with a step of 0.5"
+
+    evaluation_criteria:
+      - "Uses linspace, colon operator (0:0.5:10), or equivalent"
+      - "The resulting vector starts at 0 and ends at 10"
+      - "The step size is 0.5"
+      - "Code is syntactically valid MATLAB"
+
+    expected:
+      tool_usage:
+        required: ["matlab_execute"]
+        forbidden: []
+
+    timeout: 60
+    trials: 1
+
+  - id: "matlab_gen_003"
+    name: "Matrix multiplication"
+    tags: ["matlab", "arrays", "math", "intermediate"]
+
+    prompt: "Create two 3x3 random matrices A and B, then compute their product C = A * B"
+
+    context:
+      workspace_state:
+        existing_vars: []
+
+    evaluation_criteria:
+      - "Creates matrix A as a 3x3 random matrix"
+      - "Creates matrix B as a 3x3 random matrix"
+      - "Computes matrix multiplication (not element-wise)"
+      - "Stores result in variable C"
+      - "Uses valid MATLAB syntax"
+
+    expected:
+      tool_usage:
+        required: ["matlab_execute"]
+        forbidden: []
+
+    timeout: 60
+    trials: 1
+
+  - id: "matlab_gen_004"
+    name: "Simple sine wave plot"
+    tags: ["matlab", "plotting", "basic"]
+
+    prompt: "Create a plot of a sine wave from 0 to 2*pi"
+
+    evaluation_criteria:
+      - "Generates x values covering 0 to 2*pi (approximately 6.28)"
+      - "Computes y = sin(x) for the sine wave"
+      - "Uses a plotting function (plot, figure, etc.)"
+      - "Code is syntactically valid MATLAB"
+
+    expected:
+      tool_usage:
+        required: ["matlab_execute"]
+        forbidden: []
+
+    timeout: 90
+    trials: 1
+
+  - id: "matlab_gen_005"
+    name: "Solve linear system"
+    tags: ["matlab", "math", "linear_algebra", "intermediate"]
+
+    prompt: |
+      Solve the system of linear equations:
+      2x + 3y = 8
+      4x + y = 6
+
+      Store the solution in a vector called solution.
+
+    evaluation_criteria:
+      - "Sets up coefficient matrix A correctly ([2 3; 4 1])"
+      - "Sets up right-hand side vector b correctly ([8; 6])"
+      - "Uses backslash operator (\\) or linsolve for solution"
+      - "Stores result in 'solution' variable"
+      - "Solution is mathematically correct (x=1, y=2)"
+
+    expected:
+      tool_usage:
+        required: ["matlab_execute"]
+        forbidden: []
+
+    timeout: 60
+    trials: 1
