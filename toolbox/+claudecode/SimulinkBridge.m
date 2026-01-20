@@ -442,6 +442,63 @@ classdef SimulinkBridge < handle
             end
         end
 
+        function result = optimizeLayout(obj, options)
+            %OPTIMIZELAYOUT Optimize model layout using custom layout engine
+            %
+            %   result = bridge.optimizeLayout()
+            %   result = bridge.optimizeLayout('Spacing', 60)
+            %
+            %   Produces clean, readable diagrams with:
+            %   - 90-degree wire angles
+            %   - Minimal wire crossings
+            %   - Logical signal flow (left-to-right)
+            %   - Well-spaced, aligned blocks
+            %
+            %   Options:
+            %       Spacing - Vertical gap between blocks (default: 50)
+
+            arguments
+                obj
+                options.Spacing (1,1) double = 50
+            end
+
+            result = struct();
+            result.success = false;
+            result.message = '';
+            result.blocksProcessed = 0;
+            result.edgesProcessed = 0;
+
+            if isempty(obj.CurrentModel)
+                result.message = 'No current model set';
+                obj.Logger.warn('SimulinkBridge', 'optimize_layout_failed', struct('reason', 'no_model'));
+                return;
+            end
+
+            try
+                obj.Logger.info('SimulinkBridge', 'optimize_layout_started', struct('model', obj.CurrentModel));
+
+                engine = claudecode.SimulinkLayoutEngine(obj.CurrentModel);
+                engine.optimize('Spacing', options.Spacing);
+
+                result.success = true;
+                result.blocksProcessed = length(engine.Blocks);
+                result.edgesProcessed = length(engine.Edges);
+                result.message = sprintf('Layout optimized: %d blocks, %d edges', ...
+                    result.blocksProcessed, result.edgesProcessed);
+
+                obj.Logger.info('SimulinkBridge', 'optimize_layout_complete', struct(...
+                    'model', obj.CurrentModel, ...
+                    'blocks', result.blocksProcessed, ...
+                    'edges', result.edgesProcessed));
+
+            catch ME
+                result.message = sprintf('Layout optimization failed: %s', ME.message);
+                obj.Logger.error('SimulinkBridge', 'optimize_layout_error', struct(...
+                    'model', obj.CurrentModel, ...
+                    'error', ME.message));
+            end
+        end
+
         function success = executeSimulinkCommand(obj, command)
             %EXECUTESIMULINKCOMMAND Execute a Simulink command string
             %

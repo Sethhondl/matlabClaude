@@ -247,5 +247,90 @@ async def simulink_modify(args: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+@tool(
+    "simulink_layout",
+    "Optimize Simulink model layout for better readability. Produces clean diagrams with 90-degree wire angles, minimal crossings, and logical left-to-right signal flow.",
+    {"model": str, "action": str, "spacing": int}
+)
+async def simulink_layout(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Optimize or arrange Simulink model layout."""
+    engine = get_engine()
+    model = str(args.get("model", ""))
+    action = str(args.get("action", "optimize"))
+    spacing = int(args.get("spacing", 50))
+
+    _logger.info("simulink_tools", "layout_action", {"model": model, "action": action, "spacing": spacing})
+
+    if not model:
+        return {
+            "content": [{"type": "text", "text": "Error: Model name required"}],
+            "isError": True
+        }
+
+    try:
+        if not engine.is_connected:
+            engine.connect()
+
+        # Ensure model is loaded
+        engine.eval(f"load_system('{model}')", capture_output=False)
+
+        if action == "optimize":
+            # Use custom layout engine for optimal arrangement
+            result = engine.eval(f"""
+                bridge = claudecode.SimulinkBridge();
+                bridge.setCurrentModel('{model}');
+                result = bridge.optimizeLayout('Spacing', {spacing});
+                disp(['Success: ', num2str(result.success)]);
+                disp(['Message: ', result.message]);
+                disp(['Blocks processed: ', num2str(result.blocksProcessed)]);
+                disp(['Edges processed: ', num2str(result.edgesProcessed)]);
+            """)
+            return {"content": [{"type": "text", "text": f"Layout optimization for {model}:\n{result}"}]}
+
+        elif action == "arrange":
+            # Use Simulink's built-in arrangement
+            engine.eval(f"Simulink.BlockDiagram.arrangeSystem('{model}')", capture_output=False)
+            return {"content": [{"type": "text", "text": f"Arranged model '{model}' using Simulink auto-arrange"}]}
+
+        elif action == "info":
+            # Get layout information
+            result = engine.eval(f"""
+                blocks = find_system('{model}', 'SearchDepth', 1, 'Type', 'block');
+                lines = find_system('{model}', 'SearchDepth', 1, 'FindAll', 'on', 'Type', 'line');
+                disp(['Model: {model}']);
+                disp(['Blocks: ', num2str(length(blocks)-1)]);
+                disp(['Signal lines: ', num2str(length(lines))]);
+
+                % Calculate bounding box
+                minX = inf; minY = inf; maxX = -inf; maxY = -inf;
+                for i = 1:length(blocks)
+                    if ~strcmp(blocks{{i}}, '{model}')
+                        pos = get_param(blocks{{i}}, 'Position');
+                        minX = min(minX, pos(1));
+                        minY = min(minY, pos(2));
+                        maxX = max(maxX, pos(3));
+                        maxY = max(maxY, pos(4));
+                    end
+                end
+                if minX ~= inf
+                    disp(['Diagram bounds: [', num2str(minX), ', ', num2str(minY), '] to [', num2str(maxX), ', ', num2str(maxY), ']']);
+                    disp(['Diagram size: ', num2str(maxX-minX), ' x ', num2str(maxY-minY), ' pixels']);
+                end
+            """)
+            return {"content": [{"type": "text", "text": result}]}
+
+        else:
+            return {
+                "content": [{"type": "text", "text": f"Error: Unknown action '{action}'. Valid actions: optimize, arrange, info"}],
+                "isError": True
+            }
+
+    except Exception as e:
+        return {
+            "content": [{"type": "text", "text": f"Simulink Layout Error: {str(e)}"}],
+            "isError": True
+        }
+
+
 # List of all Simulink tools for easy importing
-SIMULINK_TOOLS = [simulink_query, simulink_modify]
+SIMULINK_TOOLS = [simulink_query, simulink_modify, simulink_layout]
