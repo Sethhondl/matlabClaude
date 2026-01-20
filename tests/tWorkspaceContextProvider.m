@@ -208,5 +208,249 @@ classdef tWorkspaceContextProvider < matlab.unittest.TestCase
             % Large arrays should show min/max/mean
             testCase.verifySubstring(context, 'large_array');
         end
+
+        %% Special Characters in Strings Tests
+        function testStringWithNewline(testCase)
+            %TESTSTRINGWITHNEWLINE Verify newline handling
+
+            evalin('base', 'newline_str = sprintf(''line1\nline2'');');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'newline_str');
+        end
+
+        function testStringWithTab(testCase)
+            %TESTSTRINGWITHTAB Verify tab handling
+
+            evalin('base', 'tab_str = sprintf(''col1\tcol2'');');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'tab_str');
+        end
+
+        function testStringWithQuotes(testCase)
+            %TESTSTRINGWITHQUOTES Verify quote handling
+
+            evalin('base', 'quote_str = ''He said "hello"'';');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'quote_str');
+        end
+
+        %% Function Handle Tests
+        function testFunctionHandle(testCase)
+            %TESTFUNCTIONHANDLE Verify function handle formatting
+
+            evalin('base', 'func_handle = @sin;');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'func_handle');
+        end
+
+        function testAnonymousFunction(testCase)
+            %TESTANONYMOUSFUNCTION Verify anonymous function handling
+
+            evalin('base', 'anon_func = @(x) x.^2 + 1;');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'anon_func');
+        end
+
+        %% Timeseries Tests
+        function testTimeseriesObject(testCase)
+            %TESTTIMESERIESOBJECT Verify timeseries handling
+
+            try
+                evalin('base', 'ts_data = timeseries(rand(10,1), 1:10);');
+                context = testCase.Provider.getWorkspaceContext();
+
+                testCase.verifySubstring(context, 'ts_data');
+            catch ME
+                % timeseries may not be available in all MATLAB versions
+                testCase.assumeFail('timeseries not available');
+            end
+        end
+
+        %% Very Large Matrix Tests
+        function testVeryLargeMatrixSummary(testCase)
+            %TESTVERYLARGENMATRIXSUMMARY Verify large matrix shows summary
+
+            evalin('base', 'huge_matrix = rand(500, 500);');
+            context = testCase.Provider.getWorkspaceContext();
+
+            % Should show size, not full data
+            testCase.verifySubstring(context, 'huge_matrix');
+            testCase.verifySubstring(context, '500');
+
+            % Should NOT contain 250000 numbers
+            testCase.verifyTrue(length(context) < 100000, ...
+                'Context should be summarized, not full data');
+        end
+
+        function testLargeMatrixShowsStats(testCase)
+            %TESTLARGEMATRIXSHOWSSTATS Verify stats for large matrices
+
+            evalin('base', 'stats_matrix = randn(100, 100);');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'stats_matrix');
+            % Should include size information
+            testCase.verifySubstring(context, '100');
+        end
+
+        %% Empty Arrays and Cells Tests
+        function testEmptyArray(testCase)
+            %TESTEMPTYARRAY Verify empty array handling
+
+            evalin('base', 'empty_arr = [];');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'empty_arr');
+        end
+
+        function testEmptyCell(testCase)
+            %TESTEMPTYCELL Verify empty cell handling
+
+            evalin('base', 'empty_cell = {};');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'empty_cell');
+        end
+
+        function testEmptyStruct(testCase)
+            %TESTEMPTYSTRUCT Verify empty struct handling
+
+            evalin('base', 'empty_struct = struct([]);');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'empty_struct');
+        end
+
+        function testEmptyString(testCase)
+            %TESTEMPTYSTRING Verify empty string handling
+
+            evalin('base', 'empty_str = '''';');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'empty_str');
+        end
+
+        %% NaN and Inf Values Tests
+        function testNaNValue(testCase)
+            %TESTNANVALUE Verify NaN handling
+
+            evalin('base', 'nan_val = NaN;');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'nan_val');
+        end
+
+        function testInfValue(testCase)
+            %TESTINFVALUE Verify Inf handling
+
+            evalin('base', 'inf_val = Inf;');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'inf_val');
+        end
+
+        function testNegInfValue(testCase)
+            %TESTNEGINFVALUE Verify negative Inf handling
+
+            evalin('base', 'neg_inf = -Inf;');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'neg_inf');
+        end
+
+        function testArrayWithNaN(testCase)
+            %TESTARRAYWITHNAN Verify array containing NaN
+
+            evalin('base', 'arr_nan = [1, 2, NaN, 4, 5];');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'arr_nan');
+        end
+
+        %% Complex Number Tests
+        function testComplexNumber(testCase)
+            %TESTCOMPLEXNUMBER Verify complex number handling
+
+            evalin('base', 'complex_num = 3 + 4i;');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'complex_num');
+        end
+
+        function testComplexArray(testCase)
+            %TESTCOMPLEXARRAY Verify complex array handling
+
+            evalin('base', 'complex_arr = [1+2i, 3+4i, 5+6i];');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'complex_arr');
+        end
+
+        %% Nested Struct Tests
+        function testNestedStruct(testCase)
+            %TESTNESTEDSTRUCT Verify nested struct handling
+
+            evalin('base', 'nested = struct(''a'', struct(''b'', 1));');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'nested');
+        end
+
+        %% Mixed Cell Array Tests
+        function testMixedCellArray(testCase)
+            %TESTMIXEDCELLARRAY Verify mixed type cell array
+
+            evalin('base', 'mixed_cell = {1, ''text'', [1,2,3], struct(''x'', 1)};');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'mixed_cell');
+        end
+
+        %% Sparse Matrix Tests
+        function testSparseMatrix(testCase)
+            %TESTSPARSEMATRIX Verify sparse matrix handling
+
+            evalin('base', 'sparse_mat = sparse(eye(10));');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'sparse_mat');
+        end
+
+        %% Multi-dimensional Array Tests
+        function testMultiDimensionalArray(testCase)
+            %TESTMULTIDIMENSIONALARRAY Verify 3D+ array handling
+
+            evalin('base', 'multi_dim = rand(3, 4, 5);');
+            context = testCase.Provider.getWorkspaceContext();
+
+            testCase.verifySubstring(context, 'multi_dim');
+        end
+
+        %% Property Modification Tests
+        function testModifyMaxVariables(testCase)
+            %TESTMODIFYMAXVARIABLES Verify MaxVariables can be changed
+
+            testCase.Provider.MaxVariables = 10;
+            testCase.verifyEqual(testCase.Provider.MaxVariables, 10);
+        end
+
+        function testModifyMaxArrayElements(testCase)
+            %TESTMODIFYMAXARRAYELEMENTS Verify MaxArrayElements can be changed
+
+            testCase.Provider.MaxArrayElements = 50;
+            testCase.verifyEqual(testCase.Provider.MaxArrayElements, 50);
+        end
+
+        function testModifyMaxVariableSize(testCase)
+            %TESTMODIFYMAXVARIABLESIZE Verify MaxVariableSize can be changed
+
+            testCase.Provider.MaxVariableSize = 5000;
+            testCase.verifyEqual(testCase.Provider.MaxVariableSize, 5000);
+        end
     end
 end

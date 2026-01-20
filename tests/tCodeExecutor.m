@@ -299,5 +299,313 @@ classdef tCodeExecutor < matlab.unittest.TestCase
 
             testCase.verifyEmpty(log);
         end
+
+        %% RequireApproval Property Tests
+        function testRequireApprovalDefaultFalse(testCase)
+            %TESTREQUIREAPPROVALDEFAULTFALSE Verify default is false
+
+            testCase.verifyFalse(testCase.Executor.RequireApproval);
+        end
+
+        function testRequireApprovalCanBeSet(testCase)
+            %TESTREQUIREAPPROVALCANBESET Verify property can be changed
+
+            testCase.Executor.RequireApproval = true;
+            testCase.verifyTrue(testCase.Executor.RequireApproval);
+        end
+
+        %% Log Entry Details Tests
+        function testLogEntryContainsTimestamp(testCase)
+            %TESTLOGENTRYCONTAINSTIMESTAMP Verify log entries have timestamps
+
+            testCase.Executor.LogExecutions = true;
+            testCase.Executor.clearLog();
+            testCase.Executor.execute('x = 1;');
+
+            log = testCase.Executor.getExecutionLog();
+
+            testCase.verifyNotEmpty(log);
+            testCase.verifyTrue(isfield(log{1}, 'timestamp'));
+            testCase.verifyClass(log{1}.timestamp, 'datetime');
+        end
+
+        function testLogEntryContainsStatus(testCase)
+            %TESTLOGENTRYCONTAINSSTATUS Verify log entries have status
+
+            testCase.Executor.LogExecutions = true;
+            testCase.Executor.clearLog();
+            testCase.Executor.execute('y = 2;');
+
+            log = testCase.Executor.getExecutionLog();
+
+            testCase.verifyTrue(isfield(log{1}, 'status'));
+            testCase.verifyEqual(log{1}.status, 'success');
+        end
+
+        function testLogEntryContainsCode(testCase)
+            %TESTLOGENTRYCONTAINSCODE Verify log entries have original code
+
+            testCase.Executor.LogExecutions = true;
+            testCase.Executor.clearLog();
+
+            code = 'z = 3 + 4;';
+            testCase.Executor.execute(code);
+
+            log = testCase.Executor.getExecutionLog();
+
+            testCase.verifyTrue(isfield(log{1}, 'code'));
+            testCase.verifyEqual(log{1}.code, code);
+        end
+
+        %% Log Size Limit Tests
+        function testLogSizeLimit(testCase)
+            %TESTLOGSIZELIMIT Verify log doesn't exceed 100 entries
+
+            testCase.Executor.LogExecutions = true;
+            testCase.Executor.clearLog();
+
+            % Execute more than 100 commands
+            for i = 1:110
+                testCase.Executor.execute(sprintf('limit_test_%d = %d;', i, i));
+            end
+
+            log = testCase.Executor.getExecutionLog();
+
+            testCase.verifyLessThanOrEqual(length(log), 100, ...
+                'Log should not exceed 100 entries');
+        end
+
+        %% Additional Blocked Operations Tests
+        function testBlockEvalc(testCase)
+            %TESTBLOCKEVALC Verify evalc() is blocked
+
+            dangerousCode = 'evalc(''disp(1)'');';
+            [isValid, reason] = testCase.Executor.validateCode(dangerousCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'evalc');
+        end
+
+        function testBlockFeval(testCase)
+            %TESTBLOCKFEVAL Verify feval() is blocked
+
+            dangerousCode = 'feval(''disp'', 1);';
+            [isValid, reason] = testCase.Executor.validateCode(dangerousCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'feval');
+        end
+
+        function testBlockBuiltin(testCase)
+            %TESTBLOCKBUILTIN Verify builtin() is blocked
+
+            dangerousCode = 'builtin(''disp'', ''hello'');';
+            [isValid, reason] = testCase.Executor.validateCode(dangerousCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'builtin');
+        end
+
+        function testBlockPerl(testCase)
+            %TESTBLOCKPERL Verify perl() is blocked
+
+            dangerousCode = 'perl(''script.pl'');';
+            [isValid, reason] = testCase.Executor.validateCode(dangerousCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'perl');
+        end
+
+        function testBlockUrlread(testCase)
+            %TESTBLOCKURLREAD Verify urlread() is blocked
+
+            dangerousCode = 'urlread(''http://evil.com'');';
+            [isValid, reason] = testCase.Executor.validateCode(dangerousCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'urlread');
+        end
+
+        function testBlockUrlwrite(testCase)
+            %TESTBLOCKURLWRITE Verify urlwrite() is blocked
+
+            dangerousCode = 'urlwrite(''http://example.com'', ''file.txt'');';
+            [isValid, reason] = testCase.Executor.validateCode(dangerousCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'urlwrite');
+        end
+
+        function testBlockWebread(testCase)
+            %TESTBLOCKWEBREAD Verify webread() is blocked
+
+            dangerousCode = 'webread(''http://api.example.com'');';
+            [isValid, reason] = testCase.Executor.validateCode(dangerousCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'webread');
+        end
+
+        function testBlockWebwrite(testCase)
+            %TESTBLOCKWEBWRITE Verify webwrite() is blocked
+
+            dangerousCode = 'webwrite(''http://api.example.com'', data);';
+            [isValid, reason] = testCase.Executor.validateCode(dangerousCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'webwrite');
+        end
+
+        function testBlockWebsave(testCase)
+            %TESTBLOCKWEBSAVE Verify websave() is blocked
+
+            dangerousCode = 'websave(''file.dat'', ''http://example.com/file'');';
+            [isValid, reason] = testCase.Executor.validateCode(dangerousCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'websave');
+        end
+
+        function testBlockPythonCommand(testCase)
+            %TESTBLOCKPYTHONCOMMAND Verify python() is blocked
+
+            dangerousCode = 'python(''script.py'');';
+            [isValid, reason] = testCase.Executor.validateCode(dangerousCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'python');
+        end
+
+        function testBlockPySubprocess(testCase)
+            %TESTBLOCKPYSUBPROCESS Verify py.subprocess is blocked
+
+            dangerousCode = 'py.subprocess.call(''ls'');';
+            [isValid, reason] = testCase.Executor.validateCode(dangerousCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'py.subprocess');
+        end
+
+        %% ExecutionWorkspace Property Tests
+        function testExecutionWorkspaceDefault(testCase)
+            %TESTEXECUTIONWORKSPACEDEFAULT Verify default workspace
+
+            testCase.verifyEqual(testCase.Executor.ExecutionWorkspace, 'base');
+        end
+
+        function testExecutionWorkspaceCanBeChanged(testCase)
+            %TESTEXECUTIONWORKSPACECANBECHANGED Verify can change workspace
+
+            testCase.Executor.ExecutionWorkspace = 'caller';
+            testCase.verifyEqual(testCase.Executor.ExecutionWorkspace, 'caller');
+        end
+
+        %% Multiline Code Tests
+        function testMultilineCodeWithDangerousOperation(testCase)
+            %TESTMULTILINECODEWITHSDANGEROUSOPERATION Verify multiline detection
+
+            multilineCode = sprintf('x = 1;\ny = 2;\nsystem(''ls'');\nz = 3;');
+            [isValid, reason] = testCase.Executor.validateCode(multilineCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'system');
+        end
+
+        function testMultilineSafeCode(testCase)
+            %TESTMULTILINESAFECODE Verify multiline safe code works
+
+            multilineCode = sprintf('x = 1;\ny = 2;\nz = x + y;');
+            [isValid, ~] = testCase.Executor.validateCode(multilineCode);
+
+            testCase.verifyTrue(isValid);
+        end
+
+        %% Variable Name Edge Cases
+        function testDeleteVariableNameAllowed(testCase)
+            %TESTDELETEVARIABLENAMEALLOWED Verify 'delete_var' variable allowed
+
+            safeCode = 'delete_flag = true;';
+            [isValid, ~] = testCase.Executor.validateCode(safeCode);
+
+            testCase.verifyTrue(isValid, ...
+                'Variable names containing ''delete'' should be allowed');
+        end
+
+        function testSystemVariableAllowed(testCase)
+            %TESTSYSTEMVARIABLEALLOWED Verify 'system_info' variable allowed
+
+            safeCode = 'system_info = struct();';
+            [isValid, ~] = testCase.Executor.validateCode(safeCode);
+
+            testCase.verifyTrue(isValid, ...
+                'Variable names containing ''system'' should be allowed');
+        end
+
+        function testEvalVariableAllowed(testCase)
+            %TESTEVALVARIABLEALLOWED Verify 'eval_result' variable allowed
+
+            safeCode = 'eval_result = 42;';
+            [isValid, ~] = testCase.Executor.validateCode(safeCode);
+
+            testCase.verifyTrue(isValid, ...
+                'Variable names containing ''eval'' should be allowed');
+        end
+
+        %% Blocked Status in Log Tests
+        function testBlockedCodeLogStatus(testCase)
+            %TESTBLOCKEDCODELOGSTATUS Verify blocked code logs as blocked
+
+            testCase.Executor.LogExecutions = true;
+            testCase.Executor.clearLog();
+
+            testCase.Executor.execute('system(''whoami'');');
+
+            log = testCase.Executor.getExecutionLog();
+
+            testCase.verifyNotEmpty(log);
+            testCase.verifyEqual(log{1}.status, 'blocked');
+            testCase.verifyTrue(log{1}.isError);
+        end
+
+        %% Clear Variants Tests
+        function testBlockClearvars(testCase)
+            %TESTBLOCKCLEARVARS Verify clearvars is blocked
+
+            dangerousCode = 'clearvars;';
+            [isValid, reason] = testCase.Executor.validateCode(dangerousCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'clearvars');
+        end
+
+        function testBlockRestart(testCase)
+            %TESTBLOCKRESTART Verify restart is blocked
+
+            dangerousCode = 'restart;';
+            [isValid, reason] = testCase.Executor.validateCode(dangerousCode);
+
+            testCase.verifyFalse(isValid);
+            testCase.verifySubstring(reason, 'restart');
+        end
+
+        %% LogExecutions Property Tests
+        function testLogExecutionsDefaultTrue(testCase)
+            %TESTLOGEXECUTIONSDEFAULTTRUE Verify logging enabled by default
+
+            testCase.verifyTrue(testCase.Executor.LogExecutions);
+        end
+
+        function testLogExecutionsDisabled(testCase)
+            %TESTLOGEXECUTIONSDISABLED Verify logging can be disabled
+
+            testCase.Executor.LogExecutions = false;
+            testCase.Executor.clearLog();
+
+            testCase.Executor.execute('x = 1;');
+
+            log = testCase.Executor.getExecutionLog();
+            testCase.verifyEmpty(log, ...
+                'Log should be empty when logging disabled');
+        end
     end
 end
