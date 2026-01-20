@@ -586,6 +586,9 @@ classdef ChatUIController < handle
             currentTheme = obj.detectMatlabTheme();
             obj.sendToJS('setTheme', struct('theme', currentTheme));
 
+            % Update status bar with model, project, git info
+            obj.updateStatusBar();
+
             % Send welcome message
             obj.sendToJS('showMessage', struct(...
                 'role', 'assistant', ...
@@ -696,6 +699,116 @@ classdef ChatUIController < handle
                     end
                     contextStr = [contextStr, '## Simulink Model Context', newline, simulinkCtx];
                 end
+            end
+        end
+
+        function gitInfo = getGitInfo(~)
+            %GETGITINFO Get git branch and diff statistics
+            %
+            %   Returns struct with fields:
+            %       branch: Current branch name (empty if not in a repo)
+            %       additions: Total lines added (uncommitted)
+            %       deletions: Total lines deleted (uncommitted)
+
+            gitInfo = struct('branch', '', 'additions', 0, 'deletions', 0);
+
+            try
+                % Get current branch name (2 second timeout to prevent UI hang)
+                if isunix
+                    [status, branch] = system('timeout 2 git rev-parse --abbrev-ref HEAD 2>/dev/null');
+                else
+                    % Windows: no timeout utility, but less common for MATLAB users
+                    [status, branch] = system('git rev-parse --abbrev-ref HEAD 2>nul');
+                end
+                if status == 0 && ~isempty(strtrim(branch))
+                    gitInfo.branch = strtrim(branch);
+                end
+
+                % Get diff statistics (3 second timeout - this command can be slow on large repos)
+                if isunix
+                    [status, diffstat] = system('timeout 3 git diff --numstat HEAD 2>/dev/null');
+                else
+                    [status, diffstat] = system('git diff --numstat HEAD 2>nul');
+                end
+                if status == 0 && ~isempty(strtrim(diffstat))
+                    lines = strsplit(strtrim(diffstat), newline);
+                    for i = 1:numel(lines)
+                        if isempty(strtrim(lines{i}))
+                            continue;
+                        end
+                        parts = strsplit(lines{i});
+                        if numel(parts) >= 2
+                            % First column is additions, second is deletions
+                            addVal = str2double(parts{1});
+                            delVal = str2double(parts{2});
+                            if ~isnan(addVal)
+                                gitInfo.additions = gitInfo.additions + addVal;
+                            end
+                            if ~isnan(delVal)
+                                gitInfo.deletions = gitInfo.deletions + delVal;
+                            end
+                        end
+                    end
+                end
+            catch
+                % Git not available or not in a repo - return defaults
+            end
+        end
+
+        function shortName = getModelShortName(obj)
+            %GETMODELSHORTNAME Get a short display name for the current model
+
+            shortName = 'Claude';  % Default fallback
+
+            try
+                settings = claudecode.config.Settings.load();
+                modelId = char(settings.model);
+
+                % Map model IDs to short display names
+                if contains(modelId, 'opus')
+                    shortName = 'Opus 4.5';
+                elseif contains(modelId, 'sonnet')
+                    shortName = 'Sonnet 4.5';
+                elseif contains(modelId, 'haiku')
+                    shortName = 'Haiku 4.5';
+                else
+                    % Use last part of model ID if unrecognized
+                    parts = strsplit(modelId, '-');
+                    if numel(parts) >= 2
+                        shortName = [upper(parts{2}(1)), parts{2}(2:end)];
+                    end
+                end
+            catch
+                % Use default if settings can't be loaded
+            end
+        end
+
+        function updateStatusBar(obj)
+            %UPDATESTATUSBAR Send current status bar data to JavaScript UI
+            %
+            %   Sends model name, project name, git branch, and diff stats
+
+            try
+                % Get model short name
+                modelName = obj.getModelShortName();
+
+                % Get project name from current directory
+                [~, projectName] = fileparts(pwd);
+
+                % Get git information
+                gitInfo = obj.getGitInfo();
+
+                % Send to UI
+                obj.sendToJS('statusBarUpdate', struct(...
+                    'model', char(modelName), ...
+                    'project', char(projectName), ...
+                    'branch', char(gitInfo.branch), ...
+                    'additions', gitInfo.additions, ...
+                    'deletions', gitInfo.deletions));
+
+            catch ME
+                obj.Logger.warn('ChatUIController', 'status_bar_update_failed', struct(...
+                    'error', ME.message));
             end
         end
 

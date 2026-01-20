@@ -21,32 +21,41 @@ window.chatState = {
  * @param {Object} htmlComponent - The MATLAB HTML component interface
  */
 function setup(htmlComponent) {
-    // Store reference globally
-    window.matlabBridge = htmlComponent;
+    try {
+        // Store reference globally
+        window.matlabBridge = htmlComponent;
 
-    // Listen for events from MATLAB via sendEventToHTMLSource
-    // These are custom events with the event name as the type
-    htmlComponent.addEventListener('showMessage', handleShowMessage);
-    htmlComponent.addEventListener('startStreaming', handleStartStreaming);
-    htmlComponent.addEventListener('streamChunk', handleStreamChunk);
-    htmlComponent.addEventListener('endStreaming', handleEndStreaming);
-    htmlComponent.addEventListener('showError', handleShowError);
-    htmlComponent.addEventListener('updateStatus', handleUpdateStatus);
-    htmlComponent.addEventListener('codeResult', handleCodeResult);
-    htmlComponent.addEventListener('showImage', handleShowImage);
-    htmlComponent.addEventListener('setTheme', handleSetTheme);
-    htmlComponent.addEventListener('loadSettings', handleLoadSettings);
+        // Listen for events from MATLAB via sendEventToHTMLSource
+        // These are custom events with the event name as the type
+        htmlComponent.addEventListener('showMessage', handleShowMessage);
+        htmlComponent.addEventListener('startStreaming', handleStartStreaming);
+        htmlComponent.addEventListener('streamChunk', handleStreamChunk);
+        htmlComponent.addEventListener('endStreaming', handleEndStreaming);
+        htmlComponent.addEventListener('showError', handleShowError);
+        htmlComponent.addEventListener('updateStatus', handleUpdateStatus);
+        htmlComponent.addEventListener('codeResult', handleCodeResult);
+        htmlComponent.addEventListener('showImage', handleShowImage);
+        htmlComponent.addEventListener('setTheme', handleSetTheme);
+        htmlComponent.addEventListener('loadSettings', handleLoadSettings);
+        htmlComponent.addEventListener('statusBarUpdate', handleStatusBarUpdate);
 
-    // Initialize UI event handlers
-    initializeUI();
+        // Initialize UI event handlers
+        initializeUI();
 
-    // Show welcome message
-    showWelcomeMessage();
+        // Initialize session timer for status bar
+        initSessionTimer();
 
-    // Notify MATLAB that UI is ready
-    htmlComponent.sendEventToMATLAB('uiReady', {
-        timestamp: Date.now()
-    });
+        // Show welcome message
+        showWelcomeMessage();
+
+        // Notify MATLAB that UI is ready
+        htmlComponent.sendEventToMATLAB('uiReady', {
+            timestamp: Date.now()
+        });
+    } catch (err) {
+        // Log any setup errors - this helps debug MATLAB uihtml warnings
+        console.error('setup() error:', err.message, err.stack);
+    }
 }
 
 /**
@@ -451,6 +460,115 @@ const SettingsManager = {
  * @param {Event} event - Contains settings data
  */
 function handleLoadSettings(event) {
-    const data = event.Data;
-    SettingsManager.loadSettings(data);
+    try {
+        const data = event && event.Data ? event.Data : {};
+        SettingsManager.loadSettings(data);
+    } catch (err) {
+        console.error('handleLoadSettings error:', err);
+    }
+}
+
+// ============================================================================
+// Status Bar
+// ============================================================================
+
+/**
+ * Initialize session timer for status bar
+ */
+function initSessionTimer() {
+    // Record session start time
+    window.sessionStartTime = Date.now();
+
+    // Update time immediately
+    updateSessionTime();
+
+    // Update every minute
+    setInterval(updateSessionTime, 60000);
+}
+
+/**
+ * Update session time display in status bar
+ */
+function updateSessionTime() {
+    try {
+        if (!window.sessionStartTime) return;
+
+        var elapsedMs = Date.now() - window.sessionStartTime;
+        var elapsedMinutes = Math.floor(elapsedMs / 60000);
+
+        var timeEl = document.getElementById('sb-time');
+        if (timeEl) {
+            if (elapsedMinutes < 60) {
+                timeEl.textContent = elapsedMinutes + 'm';
+            } else {
+                var hours = Math.floor(elapsedMinutes / 60);
+                var mins = elapsedMinutes % 60;
+                timeEl.textContent = hours + 'h ' + mins + 'm';
+            }
+        }
+    } catch (err) {
+        console.error('updateSessionTime error:', err);
+    }
+}
+
+/**
+ * Handle statusBarUpdate event from MATLAB
+ * @param {Event} event - Contains status bar data
+ */
+function handleStatusBarUpdate(event) {
+    try {
+        var data = event && event.Data ? event.Data : {};
+
+        // Update model name
+        if (data.model !== undefined) {
+            var modelEl = document.getElementById('sb-model');
+            if (modelEl) {
+                modelEl.textContent = data.model;
+            }
+        }
+
+        // Update project name
+        if (data.project !== undefined) {
+            var projectEl = document.getElementById('sb-project');
+            if (projectEl) {
+                projectEl.textContent = data.project;
+            }
+        }
+
+        // Update branch name
+        if (data.branch !== undefined) {
+            var branchEl = document.getElementById('sb-branch');
+            if (branchEl) {
+                branchEl.textContent = data.branch;
+            }
+        }
+
+        // Update diff stats
+        if (data.additions !== undefined || data.deletions !== undefined) {
+            var additionsEl = document.querySelector('#sb-diff .sb-additions');
+            var deletionsEl = document.querySelector('#sb-diff .sb-deletions');
+            if (additionsEl && data.additions !== undefined) {
+                additionsEl.textContent = '+' + data.additions;
+            }
+            if (deletionsEl && data.deletions !== undefined) {
+                deletionsEl.textContent = '-' + data.deletions;
+            }
+        }
+
+        // Update token count
+        if (data.tokens !== undefined) {
+            var tokensEl = document.getElementById('sb-tokens');
+            if (tokensEl) {
+                // Format large numbers with k suffix
+                var tokenCount = data.tokens;
+                if (tokenCount >= 1000) {
+                    tokensEl.textContent = (tokenCount / 1000).toFixed(1) + 'k tokens';
+                } else {
+                    tokensEl.textContent = tokenCount + ' tokens';
+                }
+            }
+        }
+    } catch (err) {
+        console.error('handleStatusBarUpdate error:', err);
+    }
 }

@@ -744,3 +744,87 @@ body {
     padding-top: 12px;
     border-top: 1px solid var(--border-color);
 }
+
+/* ===========================
+   Status Bar Styles
+   =========================== */
+
+/* Status bar color variables */
+:root {
+    --sb-model: #c678dd;       /* Magenta/purple for model */
+    --sb-project: #56b6c2;     /* Cyan for project */
+    --sb-branch: #98c379;      /* Green for branch */
+    --sb-additions: #d19a66;   /* Yellow/orange for additions */
+    --sb-deletions: #e06c75;   /* Red for deletions */
+}
+
+[data-theme="dark"] {
+    --sb-model: #e879a6;       /* Brighter magenta for dark mode */
+    --sb-project: #56d4dd;     /* Brighter cyan for dark mode */
+    --sb-branch: #56d364;      /* Brighter green for dark mode */
+    --sb-additions: #d4a656;   /* Yellow for additions */
+    --sb-deletions: #f85149;   /* Red for deletions */
+}
+
+#status-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'SF Mono', 'Consolas', 'Monaco', 'Menlo', monospace;
+    font-size: 11px;
+    padding: 4px 10px;
+    background-color: var(--bg-tertiary);
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.sb-segment {
+    font-weight: 500;
+}
+
+.sb-divider {
+    color: var(--border-color);
+    opacity: 0.7;
+}
+
+.sb-model {
+    color: var(--sb-model);
+}
+
+.sb-project {
+    color: var(--sb-project);
+}
+
+.sb-branch {
+    color: var(--sb-branch);
+}
+
+.sb-diff {
+    display: flex;
+    gap: 4px;
+}
+
+.sb-additions {
+    color: var(--sb-additions);
+}
+
+.sb-deletions {
+    color: var(--sb-deletions);
+}
+
+.sb-tokens {
+    color: var(--text-secondary);
+}
+
+.sb-time {
+    color: var(--text-primary);
+}
+
+/* Hide status bar on very narrow viewports */
+@media (max-width: 600px) {
+    #status-bar {
+        display: none;
+    }
+}
