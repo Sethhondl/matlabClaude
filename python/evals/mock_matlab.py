@@ -350,7 +350,7 @@ def inject_mock_engine() -> MockMatlabEngine:
     global _original_get_engine
 
     # Import here to avoid circular imports
-    from claudecode import matlab_engine
+    from derivux import matlab_engine
 
     # Save original if not already saved
     if _original_get_engine is None:
@@ -368,6 +368,6 @@ def restore_real_engine() -> None:
     global _original_get_engine
 
     if _original_get_engine is not None:
-        from claudecode import matlab_engine
+        from derivux import matlab_engine
         matlab_engine.get_engine = _original_get_engine
         _original_get_engine = None

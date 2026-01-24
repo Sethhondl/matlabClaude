@@ -1,11 +1,11 @@
 """
-Logging configuration utilities for Claude Code MATLAB Python backend.
+Logging configuration utilities for Derivux MATLAB Python backend.
 
 This module provides utilities for configuring the logger from
 MATLAB settings and environment variables.
 
 Usage:
-    from claudecode.logging_config import configure_from_matlab_settings
+    from derivux.logging_config import configure_from_matlab_settings
 
     # Configure logger from MATLAB settings dict
     configure_from_matlab_settings({
@@ -19,7 +19,7 @@ Usage:
 import os
 from typing import Any, Dict, Optional
 
-from claudecode.logger import configure_logger, get_logger
+from derivux.logger import configure_logger, get_logger
 
 
 def configure_from_matlab_settings(settings: Dict[str, Any]) -> None:
@@ -50,17 +50,17 @@ def configure_from_environment() -> None:
     """Configure logger from environment variables.
 
     Environment variables:
-        CLAUDECODE_LOG_ENABLED: '0', '1', 'true', 'false'
-        CLAUDECODE_LOG_LEVEL: 'ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'
-        CLAUDECODE_LOG_DIR: Path to log directory
-        CLAUDECODE_LOG_SENSITIVE: '0', '1', 'true', 'false'
-        CLAUDECODE_SESSION_ID: Session ID for correlation
+        DERIVUX_LOG_ENABLED: '0', '1', 'true', 'false'
+        DERIVUX_LOG_LEVEL: 'ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'
+        DERIVUX_LOG_DIR: Path to log directory
+        DERIVUX_LOG_SENSITIVE: '0', '1', 'true', 'false'
+        DERIVUX_SESSION_ID: Session ID for correlation
     """
-    enabled = _parse_bool(os.environ.get("CLAUDECODE_LOG_ENABLED", "1"), True)
-    level = os.environ.get("CLAUDECODE_LOG_LEVEL", "INFO")
-    log_dir = os.environ.get("CLAUDECODE_LOG_DIR")
-    sensitive = _parse_bool(os.environ.get("CLAUDECODE_LOG_SENSITIVE", "1"), True)
-    session_id = os.environ.get("CLAUDECODE_SESSION_ID")
+    enabled = _parse_bool(os.environ.get("DERIVUX_LOG_ENABLED", "1"), True)
+    level = os.environ.get("DERIVUX_LOG_LEVEL", "INFO")
+    log_dir = os.environ.get("DERIVUX_LOG_DIR")
+    sensitive = _parse_bool(os.environ.get("DERIVUX_LOG_SENSITIVE", "1"), True)
+    session_id = os.environ.get("DERIVUX_SESSION_ID")
 
     configure_logger(
         enabled=enabled,

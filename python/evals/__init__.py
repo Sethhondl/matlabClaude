@@ -1,5 +1,5 @@
 """
-Evaluation Framework for Claude Code MATLAB
+Evaluation Framework for Derivux MATLAB
 
 This package provides tools for testing the MatlabAgent by sending prompts
 and using Claude-as-judge to evaluate responses against expected criteria.

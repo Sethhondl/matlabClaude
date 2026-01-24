@@ -1,12 +1,12 @@
 """
-Structured JSON-lines logger for Claude Code MATLAB Python backend.
+Structured JSON-lines logger for Derivux MATLAB Python backend.
 
 This module provides a logging system that outputs JSON-lines format logs
 for machine parsing and behavioral reconstruction. It correlates with
 MATLAB-side logging via shared session IDs.
 
 Usage:
-    from claudecode.logger import get_logger, set_session_id
+    from derivux.logger import get_logger, set_session_id
 
     # Get logger instance
     logger = get_logger()
@@ -559,9 +559,9 @@ class StructuredLogger:
 
     def _get_default_log_directory(self) -> Path:
         """Get default log directory (project root/logs)."""
-        # Navigate up from python/claudecode to project root
+        # Navigate up from python/derivux to project root
         current_file = Path(__file__).resolve()
-        project_root = current_file.parent.parent.parent  # logger.py -> claudecode -> python -> root
+        project_root = current_file.parent.parent.parent  # logger.py -> derivux -> python -> root
 
         # Verify by checking for CLAUDE.md
         if (project_root / "CLAUDE.md").exists():
@@ -570,7 +570,7 @@ class StructuredLogger:
         # Fallback to temp directory
         import tempfile
 
-        return Path(tempfile.gettempdir()) / "claudecode_logs"
+        return Path(tempfile.gettempdir()) / "derivux_logs"
 
     def _check_rotation(self) -> None:
         """Check if log rotation is needed."""

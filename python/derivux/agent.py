@@ -32,7 +32,7 @@ def find_claude_cli() -> Optional[str]:
     symlinks to scripts properly.
     """
     # First, use our wrapper script which handles PATH setup
-    wrapper_path = os.path.join(os.path.dirname(__file__), 'claude_wrapper.sh')
+    wrapper_path = os.path.join(os.path.dirname(__file__), 'derivux_wrapper.sh')
     if os.path.isfile(wrapper_path) and os.access(wrapper_path, os.X_OK):
         return wrapper_path
 
@@ -252,7 +252,7 @@ class MatlabAgent:
             Configured MatlabAgent instance
 
         Example:
-            from claudecode.agents.agent_configs import GIT_AGENT_CONFIG
+            from derivux.agents.agent_configs import GIT_AGENT_CONFIG
             agent = MatlabAgent.from_config(GIT_AGENT_CONFIG)
         """
         return cls(

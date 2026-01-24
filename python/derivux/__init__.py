@@ -1,8 +1,8 @@
 """
-Claude Code MATLAB Integration - Python Core
+Derivux MATLAB Integration - Python Core
 
-This package provides the core functionality for Claude Code integration,
-designed to be called from MATLAB via py.claudecode.* syntax.
+This package provides the core functionality for Derivux integration,
+designed to be called from MATLAB via py.derivux.* syntax.
 
 Uses the Claude Agent SDK for native tool support when available.
 """

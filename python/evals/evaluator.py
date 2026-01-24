@@ -126,7 +126,7 @@ class Evaluator:
 
         # Try to use the real MatlabAgent if SDK is available
         try:
-            from claudecode.agent import MatlabAgent
+            from derivux.agent import MatlabAgent
             self._agent = MatlabAgent(max_turns=self.config.agent_max_turns)
             await self._agent.start()
             self._log("Using MatlabAgent with Claude Agent SDK")

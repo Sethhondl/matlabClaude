@@ -1,5 +1,5 @@
 """
-Claude Code Agents - Custom agent framework.
+Derivux Agents - Custom agent framework.
 
 This module provides:
 - Base classes for interceptor agents (BaseAgent)

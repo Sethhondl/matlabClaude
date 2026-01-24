@@ -296,7 +296,7 @@ async def simulink_layout(args: Dict[str, Any]) -> Dict[str, Any]:
         if action == "optimize":
             # Use custom layout engine for optimal arrangement
             result = engine.eval(f"""
-                bridge = claudecode.SimulinkBridge();
+                bridge = derivux.SimulinkBridge();
                 bridge.setCurrentModel('{model}');
                 result = bridge.optimizeLayout('Spacing', {spacing});
                 disp(['Success: ', num2str(result.success)]);
