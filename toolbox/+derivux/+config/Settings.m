@@ -1,10 +1,10 @@
 classdef Settings < handle
-    %SETTINGS Configuration settings for Claude Code MATLAB integration
+    %SETTINGS Configuration settings for Derivux MATLAB integration
     %
-    %   This class manages persistent settings for the Claude Code add-on.
+    %   This class manages persistent settings for the Derivux add-on.
     %
     %   Example:
-    %       settings = claudecode.config.Settings.load();
+    %       settings = derivux.config.Settings.load();
     %       settings.theme = 'light';
     %       settings.save();
 
@@ -41,10 +41,19 @@ classdef Settings < handle
 
         % Display Settings
         headlessMode = true                 % Suppress figure/model pop-up windows
+
+        % Timeout Settings
+        maxPollingDuration = 600            % Max total polling duration in seconds (10 min ceiling)
+
+        % Authentication Settings
+        authMethod = 'subscription'         % 'subscription' or 'api_key'
+
+        % Safety Settings
+        allowBypassModeCycling = false      % Allow cycling to bypass mode via status bar/keyboard
     end
 
     properties (Constant, Access = private)
-        SETTINGS_FILE = 'claude_code_settings.json'
+        SETTINGS_FILE = 'derivux_settings.json'
         VALID_MODELS = {...
             'claude-sonnet-4-5-20250514', ...
             'claude-opus-4-5-20250514', ...
@@ -60,6 +69,42 @@ classdef Settings < handle
                     value, strjoin(obj.VALID_MODELS, ', '));
             end
             obj.model = value;
+        end
+
+        function set.authMethod(obj, value)
+            %SET.AUTHMETHOD Validate and set authentication method
+            validMethods = {'subscription', 'api_key'};
+            if ~ismember(value, validMethods)
+                error('Settings:InvalidAuthMethod', ...
+                    'Invalid auth method: %s. Valid methods are: %s', ...
+                    value, strjoin(validMethods, ', '));
+            end
+            obj.authMethod = value;
+        end
+
+        function set.codeExecutionMode(obj, value)
+            %SET.CODEEXECUTIONMODE Validate and set code execution mode
+            %
+            %   Valid modes:
+            %   - 'plan': Interview/planning mode - no code execution
+            %   - 'prompt': Normal mode - prompts before each code execution
+            %   - 'auto': Auto mode - executes code automatically (security blocks active)
+            %   - 'bypass': DANGEROUS - removes all restrictions including blocked functions
+            %
+            %   Legacy mode 'disabled' is mapped to 'plan' for backwards compatibility
+            validModes = {'plan', 'prompt', 'auto', 'bypass'};
+
+            % Handle legacy 'disabled' mode by mapping to 'plan'
+            if strcmp(value, 'disabled')
+                value = 'plan';
+            end
+
+            if ~ismember(value, validModes)
+                error('Settings:InvalidExecutionMode', ...
+                    'Invalid execution mode: %s. Valid modes are: %s', ...
+                    value, strjoin(validModes, ', '));
+            end
+            obj.codeExecutionMode = value;
         end
 
         function save(obj)
@@ -93,7 +138,7 @@ classdef Settings < handle
         function reset(obj)
             %RESET Reset to default settings
 
-            defaultSettings = claudecode.config.Settings();
+            defaultSettings = derivux.config.Settings();
             props = properties(obj);
 
             for i = 1:length(props)
@@ -107,7 +152,7 @@ classdef Settings < handle
         function settings = load()
             %LOAD Load settings from file or create defaults
 
-            settings = claudecode.config.Settings();
+            settings = derivux.config.Settings();
             settingsPath = settings.getSettingsPath();
 
             if exist(settingsPath, 'file')
@@ -140,7 +185,7 @@ classdef Settings < handle
 
             % Use MATLAB preferences directory
             prefDir = prefdir;
-            path = fullfile(prefDir, 'ClaudeCode', 'claude_code_settings.json');
+            path = fullfile(prefDir, 'Derivux', 'derivux_settings.json');
         end
     end
 end

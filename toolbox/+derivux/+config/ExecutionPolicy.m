@@ -13,13 +13,13 @@ classdef ExecutionPolicy
         function tf = requiresApproval(obj)
             %REQUIRESAPPROVAL Check if this policy requires user approval
 
-            tf = (obj == claudecode.config.ExecutionPolicy.Prompt);
+            tf = (obj == derivux.config.ExecutionPolicy.Prompt);
         end
 
         function tf = isEnabled(obj)
             %ISENABLED Check if execution is enabled
 
-            tf = (obj ~= claudecode.config.ExecutionPolicy.Disabled);
+            tf = (obj ~= derivux.config.ExecutionPolicy.Disabled);
         end
     end
 end

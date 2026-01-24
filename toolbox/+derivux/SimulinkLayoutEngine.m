@@ -8,7 +8,7 @@ classdef SimulinkLayoutEngine < handle
     %   - Well-spaced, aligned blocks
     %
     %   Example:
-    %       engine = claudecode.SimulinkLayoutEngine('myModel');
+    %       engine = derivux.SimulinkLayoutEngine('myModel');
     %       engine.extractGraph();
     %       engine.assignLayers();
     %       engine.minimizeCrossings();
@@ -57,7 +57,7 @@ classdef SimulinkLayoutEngine < handle
             end
 
             obj.ModelName = char(modelName);
-            obj.Logger = claudecode.logging.Logger.getInstance();
+            obj.Logger = derivux.logging.Logger.getInstance();
             obj.Blocks = {};
             obj.Edges = {};
             obj.Layers = {};

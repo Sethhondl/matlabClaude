@@ -5,7 +5,7 @@ classdef Logger < handle
     %
     %   Usage:
     %       % Get the singleton instance
-    %       logger = claudecode.logging.Logger.getInstance();
+    %       logger = derivux.logging.Logger.getInstance();
     %
     %       % Log at different levels
     %       logger.info('ComponentName', 'event_name', struct('key', 'value'));
@@ -20,14 +20,14 @@ classdef Logger < handle
     %       logger.infoTimed('Component', 'operation_complete', data, toc*1000);
     %
     %       % Configure logging
-    %       logger.setLevel(claudecode.logging.LogLevel.DEBUG);
+    %       logger.setLevel(derivux.logging.LogLevel.DEBUG);
     %       logger.enable();
     %       logger.disable();
     %
     %   See also: LogLevel, LogConfig, LogFormatter
 
     properties (Access = private)
-        Config claudecode.logging.LogConfig
+        Config derivux.logging.LogConfig
         FileHandle = -1
         CurrentFilePath (1,1) string = ""
         WriteCount (1,1) double = 0
@@ -42,7 +42,7 @@ classdef Logger < handle
     methods (Access = private)
         function obj = Logger()
             %LOGGER Private constructor for singleton pattern
-            obj.Config = claudecode.logging.LogConfig();
+            obj.Config = derivux.logging.LogConfig();
         end
     end
 
@@ -51,11 +51,11 @@ classdef Logger < handle
             %GETINSTANCE Get or create the singleton Logger instance
             %
             %   Example:
-            %       logger = claudecode.logging.Logger.getInstance();
+            %       logger = derivux.logging.Logger.getInstance();
 
             persistent instance
             if isempty(instance) || ~isvalid(instance)
-                instance = claudecode.logging.Logger();
+                instance = derivux.logging.Logger();
             end
             logger = instance;
         end
@@ -64,9 +64,9 @@ classdef Logger < handle
             %RESETINSTANCE Reset the singleton instance (for testing)
             %   Forces creation of a new Logger on next getInstance() call.
 
-            logger = claudecode.logging.Logger.getInstance();
+            logger = derivux.logging.Logger.getInstance();
             logger.close();
-            clear claudecode.logging.Logger.getInstance;
+            clear derivux.logging.Logger.getInstance;
         end
     end
 
@@ -80,7 +80,7 @@ classdef Logger < handle
 
         function configure(obj, settings)
             %CONFIGURE Apply settings from Settings object
-            %   logger.configure(claudecode.config.Settings.load())
+            %   logger.configure(derivux.config.Settings.load())
 
             arguments
                 obj
@@ -92,7 +92,7 @@ classdef Logger < handle
 
         function setLevel(obj, level)
             %SETLEVEL Set the minimum logging level
-            %   logger.setLevel(claudecode.logging.LogLevel.DEBUG)
+            %   logger.setLevel(derivux.logging.LogLevel.DEBUG)
             %   logger.setLevel('DEBUG')
 
             arguments
@@ -101,7 +101,7 @@ classdef Logger < handle
             end
 
             if ischar(level) || isstring(level)
-                level = claudecode.logging.LogLevel.fromString(level);
+                level = derivux.logging.LogLevel.fromString(level);
             end
             obj.Config.Level = level;
         end
@@ -173,7 +173,7 @@ classdef Logger < handle
                 options.StackTrace (1,1) string = ""
             end
 
-            obj.log(claudecode.logging.LogLevel.ERROR, component, event, data, ...
+            obj.log(derivux.logging.LogLevel.ERROR, component, event, data, ...
                 'TraceId', options.TraceId, 'StackTrace', options.StackTrace);
         end
 
@@ -189,7 +189,7 @@ classdef Logger < handle
                 options.TraceId (1,1) string = ""
             end
 
-            obj.log(claudecode.logging.LogLevel.WARN, component, event, data, ...
+            obj.log(derivux.logging.LogLevel.WARN, component, event, data, ...
                 'TraceId', options.TraceId);
         end
 
@@ -206,7 +206,7 @@ classdef Logger < handle
                 options.TraceId (1,1) string = ""
             end
 
-            obj.log(claudecode.logging.LogLevel.INFO, component, event, data, ...
+            obj.log(derivux.logging.LogLevel.INFO, component, event, data, ...
                 'TraceId', options.TraceId);
         end
 
@@ -222,7 +222,7 @@ classdef Logger < handle
                 options.TraceId (1,1) string = ""
             end
 
-            obj.log(claudecode.logging.LogLevel.DEBUG, component, event, data, ...
+            obj.log(derivux.logging.LogLevel.DEBUG, component, event, data, ...
                 'TraceId', options.TraceId);
         end
 
@@ -238,7 +238,7 @@ classdef Logger < handle
                 options.TraceId (1,1) string = ""
             end
 
-            obj.log(claudecode.logging.LogLevel.TRACE, component, event, data, ...
+            obj.log(derivux.logging.LogLevel.TRACE, component, event, data, ...
                 'TraceId', options.TraceId);
         end
 
@@ -255,7 +255,7 @@ classdef Logger < handle
                 options.TraceId (1,1) string = ""
             end
 
-            obj.log(claudecode.logging.LogLevel.ERROR, component, event, data, ...
+            obj.log(derivux.logging.LogLevel.ERROR, component, event, data, ...
                 'DurationMs', durationMs, 'TraceId', options.TraceId);
         end
 
@@ -270,7 +270,7 @@ classdef Logger < handle
                 options.TraceId (1,1) string = ""
             end
 
-            obj.log(claudecode.logging.LogLevel.WARN, component, event, data, ...
+            obj.log(derivux.logging.LogLevel.WARN, component, event, data, ...
                 'DurationMs', durationMs, 'TraceId', options.TraceId);
         end
 
@@ -286,7 +286,7 @@ classdef Logger < handle
                 options.TraceId (1,1) string = ""
             end
 
-            obj.log(claudecode.logging.LogLevel.INFO, component, event, data, ...
+            obj.log(derivux.logging.LogLevel.INFO, component, event, data, ...
                 'DurationMs', durationMs, 'TraceId', options.TraceId);
         end
 
@@ -301,7 +301,7 @@ classdef Logger < handle
                 options.TraceId (1,1) string = ""
             end
 
-            obj.log(claudecode.logging.LogLevel.DEBUG, component, event, data, ...
+            obj.log(derivux.logging.LogLevel.DEBUG, component, event, data, ...
                 'DurationMs', durationMs, 'TraceId', options.TraceId);
         end
 
@@ -316,7 +316,7 @@ classdef Logger < handle
                 options.TraceId (1,1) string = ""
             end
 
-            obj.log(claudecode.logging.LogLevel.TRACE, component, event, data, ...
+            obj.log(derivux.logging.LogLevel.TRACE, component, event, data, ...
                 'DurationMs', durationMs, 'TraceId', options.TraceId);
         end
 
@@ -354,7 +354,7 @@ classdef Logger < handle
 
             arguments
                 obj
-                level claudecode.logging.LogLevel
+                level derivux.logging.LogLevel
                 component (1,1) string
                 event (1,1) string
                 data = struct()
@@ -370,14 +370,14 @@ classdef Logger < handle
 
             try
                 % Build log entry
-                entry = claudecode.logging.LogFormatter.createEntry(level, component, event, data, ...
+                entry = derivux.logging.LogFormatter.createEntry(level, component, event, data, ...
                     'SessionId', obj.Config.SessionId, ...
                     'DurationMs', options.DurationMs, ...
                     'TraceId', options.TraceId, ...
                     'StackTrace', options.StackTrace);
 
                 % Convert to JSON
-                jsonStr = claudecode.logging.LogFormatter.toJson(entry);
+                jsonStr = derivux.logging.LogFormatter.toJson(entry);
 
                 % Console output if enabled
                 if obj.Config.ConsoleOutput

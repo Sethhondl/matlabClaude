@@ -4,8 +4,8 @@ classdef LogConfig < handle
     %   output paths, verbosity levels, rotation settings, and formatting.
     %
     %   Example:
-    %       config = claudecode.logging.LogConfig();
-    %       config.Level = claudecode.logging.LogLevel.DEBUG;
+    %       config = derivux.logging.LogConfig();
+    %       config.Level = derivux.logging.LogLevel.DEBUG;
     %       config.LogDirectory = '/custom/logs';
     %
     %   See also: Logger, LogLevel
@@ -15,7 +15,7 @@ classdef LogConfig < handle
         Enabled (1,1) logical = true
 
         % Minimum level to log (messages below this are ignored)
-        Level (1,1) claudecode.logging.LogLevel = claudecode.logging.LogLevel.INFO
+        Level (1,1) derivux.logging.LogLevel = derivux.logging.LogLevel.INFO
 
         % Directory for log files (empty = default logs/ in project)
         LogDirectory (1,1) string = ""
@@ -87,7 +87,7 @@ classdef LogConfig < handle
         function reset(obj)
             %RESET Reset configuration to defaults
             obj.Enabled = true;
-            obj.Level = claudecode.logging.LogLevel.INFO;
+            obj.Level = derivux.logging.LogLevel.INFO;
             obj.LogDirectory = "";
             obj.LogSensitiveData = true;
             obj.MaxFileSize = 10485760;
@@ -101,7 +101,7 @@ classdef LogConfig < handle
 
         function applySettings(obj, settings)
             %APPLYSETTINGS Apply settings from Settings object
-            %   config.applySettings(claudecode.config.Settings.load())
+            %   config.applySettings(derivux.config.Settings.load())
 
             arguments
                 obj
@@ -113,7 +113,7 @@ classdef LogConfig < handle
             end
 
             if isprop(settings, 'logLevel')
-                obj.Level = claudecode.logging.LogLevel.fromString(settings.logLevel);
+                obj.Level = derivux.logging.LogLevel.fromString(settings.logLevel);
             end
 
             if isprop(settings, 'logDirectory') && settings.logDirectory ~= ""
@@ -154,7 +154,7 @@ classdef LogConfig < handle
             currentDir = fileparts(mfilename('fullpath'));
 
             % Navigate up from +logging to project root
-            % +logging -> +claudecode -> toolbox -> project root
+            % +logging -> +derivux -> toolbox -> project root
             projectRoot = fullfile(currentDir, '..', '..', '..', '..');
             projectRoot = char(java.io.File(projectRoot).getCanonicalPath());
 
@@ -163,7 +163,7 @@ classdef LogConfig < handle
                 logDir = fullfile(projectRoot, 'logs');
             else
                 % Fallback to temp directory
-                logDir = fullfile(tempdir, 'claudecode_logs');
+                logDir = fullfile(tempdir, 'derivux_logs');
             end
         end
     end

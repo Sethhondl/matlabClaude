@@ -6,7 +6,7 @@ classdef ChatUIController < handle
     %   Core logic (Claude communication, agents) is handled by Python.
     %
     %   Example:
-    %       controller = claudecode.ChatUIController(parentFigure, bridge);
+    %       controller = derivux.ChatUIController(parentFigure, bridge);
 
     properties (Access = public)
         SimulinkBridge      % Reference to SimulinkBridge for model context
@@ -18,6 +18,7 @@ classdef ChatUIController < handle
         PythonBridge        % Python MatlabBridge instance
         CodeExecutor        % Reference to CodeExecutor (MATLAB-side)
         WorkspaceProvider   % Reference to WorkspaceContextProvider
+        SessionManager      % Manages multiple chat sessions (tabs)
         HTMLComponent       % uihtml component
         IsReady = false     % Whether UI has initialized
         PollingTimer        % Timer for polling async responses
@@ -29,10 +30,13 @@ classdef ChatUIController < handle
         CurrentStreamText = '' % Accumulated text during streaming
         CurrentTraceId = '' % Trace ID for correlating streaming events
         StreamChunkCount = 0 % Count of stream chunks for current message
+        InitiatingTabId = '' % Tab that initiated current async request (for session isolation)
 
         % Polling timeout
-        PollingStartTime    % Time when polling started
-        MaxPollingDuration = 300 % Maximum polling duration in seconds (5 minutes)
+        PollingStartTime        % Time when polling started (for max ceiling)
+        LastActivityTime        % Time of last content received (for activity timeout)
+        MaxPollingDuration = 600    % Max total polling duration (10 minutes) - safety ceiling
+        ActivityTimeout = 120       % Timeout after no activity (2 minutes)
     end
 
     events
@@ -51,9 +55,10 @@ classdef ChatUIController < handle
 
             obj.ParentFigure = parent;
             obj.PythonBridge = pythonBridge;
-            obj.CodeExecutor = claudecode.CodeExecutor();
-            obj.WorkspaceProvider = claudecode.WorkspaceContextProvider();
-            obj.Logger = claudecode.logging.Logger.getInstance();
+            obj.CodeExecutor = derivux.CodeExecutor();
+            obj.WorkspaceProvider = derivux.WorkspaceContextProvider();
+            obj.SessionManager = derivux.SessionManager(pythonBridge);
+            obj.Logger = derivux.logging.Logger.getInstance();
 
             obj.createUI();
 
@@ -136,8 +141,12 @@ classdef ChatUIController < handle
 
             obj.Logger.info('ChatUIController', 'stream_complete', struct(...
                 'response_length', responseLength, ...
-                'total_chunks', obj.StreamChunkCount), ...
+                'total_chunks', obj.StreamChunkCount, ...
+                'initiating_tab', obj.InitiatingTabId), ...
                 'TraceId', obj.CurrentTraceId);
+
+            % Clear initiating tab ID after completion
+            obj.InitiatingTabId = '';
         end
 
         function sendError(obj, message)
@@ -145,6 +154,7 @@ classdef ChatUIController < handle
 
             obj.addMessage('error', message);
             obj.IsStreaming = false;
+            obj.InitiatingTabId = '';  % Clear initiating tab on error
             obj.updateStatus('error', 'Error occurred');
             obj.sendToJS('showError', struct('message', message));
         end
@@ -213,13 +223,41 @@ classdef ChatUIController < handle
                         obj.onUIReady();
 
                     case 'clearChat'
-                        obj.onClearChat();
+                        obj.onClearChat(eventData);
 
                     case 'requestSettings'
                         obj.sendCurrentSettings();
 
                     case 'saveSettings'
                         obj.handleSaveSettings(eventData);
+
+                    case 'setAuthMethod'
+                        obj.handleSetAuthMethod(eventData);
+
+                    case 'validateApiKey'
+                        obj.handleValidateApiKey(eventData);
+
+                    case 'clearApiKey'
+                        obj.handleClearApiKey();
+
+                    case 'cliLogin'
+                        obj.handleCliLogin();
+
+                    case 'requestAuthStatus'
+                        obj.sendAuthStatus();
+
+                    case 'setExecutionMode'
+                        obj.handleSetExecutionMode(eventData);
+
+                    % Multi-session tab events
+                    case 'createSession'
+                        obj.handleCreateSession(eventData);
+
+                    case 'closeSession'
+                        obj.handleCloseSession(eventData);
+
+                    case 'switchSession'
+                        obj.handleSwitchSession(eventData);
 
                     otherwise
                         warning('ChatUIController:UnknownEvent', ...
@@ -245,12 +283,21 @@ classdef ChatUIController < handle
                 return;
             end
 
+            % Capture initiating tab ID for session isolation
+            % This ensures streaming responses go to the correct tab even if user switches
+            if isfield(data, 'tabId')
+                obj.InitiatingTabId = char(data.tabId);
+            else
+                obj.InitiatingTabId = '';
+            end
+
             % Generate trace ID for this message flow
             obj.CurrentTraceId = sprintf('msg_%s', datestr(now, 'HHMMSS_FFF'));
 
-            % Log message received
+            % Log message received with initiating tab for session tracing
             obj.Logger.info('ChatUIController', 'message_received', struct(...
-                'message_length', strlength(message)), ...
+                'message_length', strlength(message), ...
+                'initiating_tab', obj.InitiatingTabId), ...
                 'TraceId', obj.CurrentTraceId);
 
             % Check for /context command
@@ -301,8 +348,17 @@ classdef ChatUIController < handle
         function startPolling(obj)
             %STARTPOLLING Start polling for async response chunks
 
+            % Load timeout setting (allows mid-session changes)
+            try
+                settings = derivux.config.Settings.load();
+                obj.MaxPollingDuration = settings.maxPollingDuration;
+            catch
+                % Keep default if settings fail to load
+            end
+
             % Record start time for timeout detection
             obj.PollingStartTime = tic;
+            obj.LastActivityTime = tic;  % Initialize activity timer
 
             obj.PollingTimer = timer(...
                 'ExecutionMode', 'fixedSpacing', ...
@@ -315,13 +371,25 @@ classdef ChatUIController < handle
             %POLLASYNCRESPONSE Poll Python for async response content
 
             try
-                % Check for polling timeout
-                if ~isempty(obj.PollingStartTime)
-                    elapsedTime = toc(obj.PollingStartTime);
-                    if elapsedTime > obj.MaxPollingDuration
+                % Check for activity-based timeout (no content received recently)
+                if ~isempty(obj.LastActivityTime)
+                    inactiveTime = toc(obj.LastActivityTime);
+                    totalTime = toc(obj.PollingStartTime);
+
+                    % Timeout if no activity for ActivityTimeout seconds
+                    % Also enforce MaxPollingDuration as an absolute safety ceiling
+                    if inactiveTime > obj.ActivityTimeout || totalTime > obj.MaxPollingDuration
                         % Timeout occurred - stop polling and show error
+                        timeoutReason = 'inactivity';
+                        if totalTime > obj.MaxPollingDuration
+                            timeoutReason = 'max_duration';
+                        end
+
                         obj.Logger.warn('ChatUIController', 'polling_timeout', struct(...
-                            'elapsed_seconds', elapsedTime, ...
+                            'inactive_seconds', inactiveTime, ...
+                            'total_seconds', totalTime, ...
+                            'timeout_reason', timeoutReason, ...
+                            'activity_timeout', obj.ActivityTimeout, ...
                             'max_duration', obj.MaxPollingDuration), ...
                             'TraceId', obj.CurrentTraceId);
 
@@ -331,9 +399,16 @@ classdef ChatUIController < handle
                             obj.PollingTimer = [];
                         end
                         obj.endStreaming();
-                        obj.sendError(sprintf(...
-                            'Request timed out after %.0f seconds. The AI may be unavailable or processing a complex request. Please try again.', ...
-                            elapsedTime));
+
+                        if strcmp(timeoutReason, 'inactivity')
+                            obj.sendError(sprintf(...
+                                'Request timed out after %.0f seconds of inactivity. The AI may be unavailable. Please try again.', ...
+                                inactiveTime));
+                        else
+                            obj.sendError(sprintf(...
+                                'Request exceeded maximum duration of %.0f seconds. Please try a simpler request.', ...
+                                totalTime));
+                        end
                         return;
                     end
                 end
@@ -363,6 +438,9 @@ classdef ChatUIController < handle
                                 toolName = char(item.name);
                                 obj.sendStreamChunk(sprintf('\n[Using tool: %s]\n', toolName));
                         end
+
+                        % Reset activity timeout on any content received
+                        obj.LastActivityTime = tic;
                     end
                 end
 
@@ -488,8 +566,16 @@ classdef ChatUIController < handle
             end
         end
 
-        function onClearChat(obj)
+        function onClearChat(obj, eventData)
             %ONCLEARCHAT Handle clear chat request
+            %
+            %   eventData may contain tabId for session-specific clearing
+
+            % Get tabId if provided
+            tabId = '';
+            if nargin > 1 && isstruct(eventData) && isfield(eventData, 'tabId')
+                tabId = char(eventData.tabId);
+            end
 
             % Clear local message history
             obj.Messages = {};
@@ -508,13 +594,21 @@ classdef ChatUIController < handle
 
             % Update status
             obj.updateStatus('ready', 'Ready');
+
+            % Log with tabId if available
+            if ~isempty(tabId)
+                obj.Logger.debug('ChatUIController', 'chat_cleared', struct('tabId', tabId));
+            end
         end
 
         function sendCurrentSettings(obj)
             %SENDCURRENTSETTINGS Send current settings to JavaScript
 
             try
-                settings = claudecode.config.Settings.load();
+                settings = derivux.config.Settings.load();
+
+                % Get auth info from CredentialStore
+                authInfo = derivux.config.CredentialStore.getAuthInfo();
 
                 % Ensure all values are the correct type for JavaScript
                 settingsStruct = struct(...
@@ -524,7 +618,12 @@ classdef ChatUIController < handle
                     'loggingEnabled', logical(settings.loggingEnabled), ...
                     'logLevel', char(settings.logLevel), ...
                     'logSensitiveData', logical(settings.logSensitiveData), ...
-                    'headlessMode', logical(settings.headlessMode));
+                    'headlessMode', logical(settings.headlessMode), ...
+                    'maxPollingDuration', double(settings.maxPollingDuration), ...
+                    'allowBypassModeCycling', logical(settings.allowBypassModeCycling), ...
+                    'authMethod', authInfo.authMethod, ...
+                    'hasApiKey', authInfo.hasApiKey, ...
+                    'apiKeyMasked', authInfo.apiKeyMasked);
                 obj.sendToJS('loadSettings', settingsStruct);
             catch ME
                 % Send default settings if loading fails
@@ -537,7 +636,12 @@ classdef ChatUIController < handle
                     'loggingEnabled', true, ...
                     'logLevel', 'INFO', ...
                     'logSensitiveData', true, ...
-                    'headlessMode', true);
+                    'headlessMode', true, ...
+                    'maxPollingDuration', 600, ...
+                    'allowBypassModeCycling', false, ...
+                    'authMethod', 'subscription', ...
+                    'hasApiKey', false, ...
+                    'apiKeyMasked', '');
                 obj.sendToJS('loadSettings', defaultSettings);
             end
         end
@@ -546,7 +650,7 @@ classdef ChatUIController < handle
             %HANDLESAVESETTINGS Save settings from JavaScript
 
             try
-                settings = claudecode.config.Settings.load();
+                settings = derivux.config.Settings.load();
 
                 % Update settings from data
                 if isfield(data, 'model')
@@ -570,6 +674,12 @@ classdef ChatUIController < handle
                 if isfield(data, 'headlessMode')
                     settings.headlessMode = data.headlessMode;
                 end
+                if isfield(data, 'maxPollingDuration')
+                    settings.maxPollingDuration = data.maxPollingDuration;
+                end
+                if isfield(data, 'allowBypassModeCycling')
+                    settings.allowBypassModeCycling = data.allowBypassModeCycling;
+                end
 
                 settings.save();
 
@@ -591,13 +701,13 @@ classdef ChatUIController < handle
                 % Update Logger with new settings
                 if isfield(data, 'loggingEnabled') || isfield(data, 'logLevel') || isfield(data, 'logSensitiveData')
                     try
-                        logger = claudecode.logging.Logger.getInstance();
+                        logger = derivux.logging.Logger.getInstance();
                         config = logger.getConfig();
                         if isfield(data, 'loggingEnabled')
                             config.Enabled = data.loggingEnabled;
                         end
                         if isfield(data, 'logLevel')
-                            config.Level = claudecode.logging.LogLevel.fromString(data.logLevel);
+                            config.Level = derivux.logging.LogLevel.fromString(data.logLevel);
                         end
                         if isfield(data, 'logSensitiveData')
                             config.LogSensitiveData = data.logSensitiveData;
@@ -624,6 +734,338 @@ classdef ChatUIController < handle
             end
         end
 
+        function handleSetAuthMethod(obj, data)
+            %HANDLESETAUTHMETHOD Save authentication method preference
+
+            try
+                if isfield(data, 'method')
+                    method = char(data.method);
+
+                    % Save to settings
+                    settings = derivux.config.Settings.load();
+                    settings.authMethod = method;
+                    settings.save();
+
+                    % Also save to CredentialStore for persistence
+                    derivux.config.CredentialStore.setAuthMethod(method);
+
+                    % Update Python bridge
+                    if ~isempty(obj.PythonBridge)
+                        try
+                            obj.PythonBridge.set_auth_method(method);
+                        catch ME
+                            warning('ChatUIController:AuthMethodError', ...
+                                'Error updating auth method in Python: %s', ME.message);
+                        end
+                    end
+
+                    % Update status bar
+                    obj.updateStatusBar();
+
+                    obj.Logger.info('ChatUIController', 'auth_method_changed', struct(...
+                        'method', method));
+                end
+            catch ME
+                warning('ChatUIController:SetAuthMethodError', ...
+                    'Error setting auth method: %s', ME.message);
+            end
+        end
+
+        function handleValidateApiKey(obj, data)
+            %HANDLEVALIDATEAPIKEY Validate API key and store if valid
+
+            try
+                if ~isfield(data, 'apiKey')
+                    obj.sendToJS('apiKeyValidationResult', struct(...
+                        'valid', false, ...
+                        'message', 'No API key provided'));
+                    return;
+                end
+
+                apiKey = char(data.apiKey);
+
+                % Use CredentialStore to validate format
+                isValid = derivux.config.CredentialStore.validateApiKey(apiKey);
+
+                if isValid
+                    % Store the API key
+                    derivux.config.CredentialStore.setApiKey(apiKey);
+
+                    % Set in Python bridge environment
+                    if ~isempty(obj.PythonBridge)
+                        try
+                            obj.PythonBridge.set_api_key(apiKey);
+                        catch ME
+                            warning('ChatUIController:ApiKeyEnvError', ...
+                                'Error setting API key in Python: %s', ME.message);
+                        end
+                    end
+
+                    % Get masked version for display
+                    authInfo = derivux.config.CredentialStore.getAuthInfo();
+
+                    obj.sendToJS('apiKeyValidationResult', struct(...
+                        'valid', true, ...
+                        'message', ['API key validated and stored: ', authInfo.apiKeyMasked]));
+
+                    obj.Logger.info('ChatUIController', 'api_key_validated_and_stored');
+                else
+                    obj.sendToJS('apiKeyValidationResult', struct(...
+                        'valid', false, ...
+                        'message', 'Invalid API key format. Keys should start with "sk-ant-" and be 100+ characters.'));
+                end
+            catch ME
+                obj.sendToJS('apiKeyValidationResult', struct(...
+                    'valid', false, ...
+                    'message', ['Validation error: ', ME.message]));
+                warning('ChatUIController:ValidateApiKeyError', ...
+                    'Error validating API key: %s', ME.message);
+            end
+        end
+
+        function handleClearApiKey(obj)
+            %HANDLECLEARAPIKEY Clear stored API key
+
+            try
+                % Clear from CredentialStore
+                derivux.config.CredentialStore.clearApiKey();
+
+                % Clear from Python bridge environment
+                if ~isempty(obj.PythonBridge)
+                    try
+                        obj.PythonBridge.clear_api_key();
+                    catch ME
+                        warning('ChatUIController:ClearApiKeyEnvError', ...
+                            'Error clearing API key in Python: %s', ME.message);
+                    end
+                end
+
+                % Send updated status to UI
+                obj.sendAuthStatus();
+
+                obj.Logger.info('ChatUIController', 'api_key_cleared');
+            catch ME
+                warning('ChatUIController:ClearApiKeyError', ...
+                    'Error clearing API key: %s', ME.message);
+            end
+        end
+
+        function handleCliLogin(obj)
+            %HANDLECLILOGIN Start Claude CLI login process
+            %
+            %   This will automatically install the Claude CLI if it's not
+            %   already installed, then open the browser for authentication.
+
+            try
+                if ~isempty(obj.PythonBridge)
+                    % Update status to show we're working
+                    obj.sendToJS('cliLoginResult', struct(...
+                        'started', false, ...
+                        'installing', true, ...
+                        'message', 'Checking Claude CLI installation...'));
+
+                    result = obj.PythonBridge.start_cli_login();
+                    result = obj.pyDictToStruct(result);
+
+                    % Check for installing flag (CLI was just installed)
+                    installing = false;
+                    if isfield(result, 'installing')
+                        installing = logical(result.installing);
+                    end
+
+                    obj.sendToJS('cliLoginResult', struct(...
+                        'started', logical(result.started), ...
+                        'installing', installing, ...
+                        'message', char(result.message)));
+
+                    obj.Logger.info('ChatUIController', 'cli_login_started', struct(...
+                        'started', result.started, ...
+                        'installing', installing));
+                else
+                    obj.sendToJS('cliLoginResult', struct(...
+                        'started', false, ...
+                        'installing', false, ...
+                        'message', 'Python bridge not available'));
+                end
+            catch ME
+                obj.sendToJS('cliLoginResult', struct(...
+                    'started', false, ...
+                    'installing', false, ...
+                    'message', ['Login error: ', ME.message]));
+                warning('ChatUIController:CliLoginError', ...
+                    'Error starting CLI login: %s', ME.message);
+            end
+        end
+
+        function sendAuthStatus(obj)
+            %SENDAUTHSTATUS Send current authentication status to UI
+
+            try
+                % Get auth info from CredentialStore
+                authInfo = derivux.config.CredentialStore.getAuthInfo();
+
+                statusData = struct();
+                statusData.authMethod = authInfo.authMethod;
+                statusData.hasApiKey = authInfo.hasApiKey;
+                statusData.apiKeyMasked = authInfo.apiKeyMasked;
+
+                % Get CLI auth status from Python
+                if ~isempty(obj.PythonBridge)
+                    try
+                        cliStatus = obj.PythonBridge.check_cli_auth_status();
+                        cliStatus = obj.pyDictToStruct(cliStatus);
+                        statusData.cliAuthenticated = logical(cliStatus.authenticated);
+                        statusData.cliEmail = char(cliStatus.email);
+                        statusData.cliMessage = char(cliStatus.message);
+                    catch ME
+                        statusData.cliAuthenticated = false;
+                        statusData.cliEmail = '';
+                        statusData.cliMessage = ['Error checking CLI status: ', ME.message];
+                    end
+                else
+                    statusData.cliAuthenticated = false;
+                    statusData.cliEmail = '';
+                    statusData.cliMessage = 'Python bridge not available';
+                end
+
+                obj.sendToJS('authStatusUpdate', statusData);
+
+            catch ME
+                warning('ChatUIController:SendAuthStatusError', ...
+                    'Error sending auth status: %s', ME.message);
+            end
+        end
+
+        function handleSetExecutionMode(obj, data)
+            %HANDLESETEXECUTIONMODE Handle execution mode change from UI
+            %
+            %   This handles the setExecutionMode event from JavaScript when
+            %   the user clicks the status bar indicator or changes the dropdown.
+            %
+            %   Modes:
+            %   - 'plan': Interview/planning mode - no code execution
+            %   - 'prompt': Normal mode - prompts before each code execution
+            %   - 'auto': Auto mode - executes automatically (security blocks active)
+            %   - 'bypass': DANGEROUS - removes all restrictions
+
+            try
+                if ~isfield(data, 'mode')
+                    return;
+                end
+
+                mode = char(data.mode);
+
+                % Save to settings
+                settings = derivux.config.Settings.load();
+                settings.codeExecutionMode = mode;
+                settings.save();
+
+                % Log warning for dangerous modes
+                if strcmp(mode, 'bypass')
+                    obj.Logger.warn('ChatUIController', 'bypass_mode_enabled', struct(...
+                        'warning', 'ALL SAFETY RESTRICTIONS DISABLED'));
+                elseif strcmp(mode, 'auto')
+                    obj.Logger.info('ChatUIController', 'auto_mode_enabled', struct(...
+                        'note', 'Auto-execution enabled, security blocks still active'));
+                else
+                    obj.Logger.info('ChatUIController', 'execution_mode_changed', struct(...
+                        'mode', mode));
+                end
+
+                % Update Python bridge with new mode (if method exists)
+                if ~isempty(obj.PythonBridge)
+                    try
+                        obj.PythonBridge.set_execution_mode(mode);
+                    catch
+                        % Method may not exist yet - that's OK
+                    end
+                end
+
+                % Update status bar
+                obj.updateStatusBar();
+
+            catch ME
+                warning('ChatUIController:SetExecutionModeError', ...
+                    'Error setting execution mode: %s', ME.message);
+            end
+        end
+
+        function handleCreateSession(obj, eventData)
+            %HANDLECREATESESSION Handle create session event from JavaScript
+            %
+            %   Called when user creates a new tab in the UI.
+
+            try
+                if ~isfield(eventData, 'tabId')
+                    return;
+                end
+
+                tabId = char(eventData.tabId);
+                obj.SessionManager.createSession(tabId);
+
+                obj.Logger.info('ChatUIController', 'session_created', struct(...
+                    'tabId', tabId));
+            catch ME
+                warning('ChatUIController:CreateSessionError', ...
+                    'Error creating session: %s', ME.message);
+            end
+        end
+
+        function handleCloseSession(obj, eventData)
+            %HANDLECLOSESESSION Handle close session event from JavaScript
+            %
+            %   Called when user closes a tab in the UI.
+
+            try
+                if ~isfield(eventData, 'tabId')
+                    return;
+                end
+
+                tabId = char(eventData.tabId);
+                obj.SessionManager.closeSession(tabId);
+
+                obj.Logger.info('ChatUIController', 'session_closed', struct(...
+                    'tabId', tabId));
+            catch ME
+                warning('ChatUIController:CloseSessionError', ...
+                    'Error closing session: %s', ME.message);
+            end
+        end
+
+        function handleSwitchSession(obj, eventData)
+            %HANDLESWITCHSESSION Handle switch session event from JavaScript
+            %
+            %   Called when user switches between tabs in the UI.
+
+            try
+                if ~isfield(eventData, 'tabId')
+                    return;
+                end
+
+                tabId = char(eventData.tabId);
+                obj.SessionManager.switchSession(tabId);
+
+                obj.Logger.debug('ChatUIController', 'session_switched', struct(...
+                    'tabId', tabId));
+            catch ME
+                warning('ChatUIController:SwitchSessionError', ...
+                    'Error switching session: %s', ME.message);
+            end
+        end
+
+        function updateTabStatus(obj, tabId, status)
+            %UPDATETABSTATUS Send tab status update to JavaScript
+            %
+            %   updateTabStatus(obj, tabId, status)
+            %
+            %   tabId: The tab/session ID
+            %   status: Status string ('ready', 'working', 'attention', 'unread')
+
+            obj.sendToJS('tabStatusUpdate', struct(...
+                'tabId', tabId, ...
+                'status', status));
+        end
+
         function onUIReady(obj)
             %ONUIREADY Handle UI ready signal
 
@@ -636,10 +1078,8 @@ classdef ChatUIController < handle
             % Update status bar with model, project, git info
             obj.updateStatusBar();
 
-            % Send welcome message
-            obj.sendToJS('showMessage', struct(...
-                'role', 'assistant', ...
-                'content', 'Welcome to Claude Code! Ask questions about your MATLAB code, get help with Simulink models, or request code changes.'));
+            % Note: Welcome message is now shown by JavaScript TabManager
+            % when creating the initial tab
         end
 
         function themeStr = detectMatlabTheme(obj)
@@ -808,7 +1248,7 @@ classdef ChatUIController < handle
             shortName = 'Claude';  % Default fallback
 
             try
-                settings = claudecode.config.Settings.load();
+                settings = derivux.config.Settings.load();
                 modelId = char(settings.model);
 
                 % Map model IDs to short display names
@@ -833,7 +1273,8 @@ classdef ChatUIController < handle
         function updateStatusBar(obj)
             %UPDATESTATUSBAR Send current status bar data to JavaScript UI
             %
-            %   Sends model name, project name, git branch, and diff stats
+            %   Sends model name, project name, git branch, diff stats, auth method,
+            %   and execution mode
 
             try
                 % Get model short name
@@ -845,13 +1286,22 @@ classdef ChatUIController < handle
                 % Get git information
                 gitInfo = obj.getGitInfo();
 
+                % Get auth method
+                authMethod = derivux.config.CredentialStore.getAuthMethod();
+
+                % Get execution mode
+                settings = derivux.config.Settings.load();
+                executionMode = char(settings.codeExecutionMode);
+
                 % Send to UI
                 obj.sendToJS('statusBarUpdate', struct(...
                     'model', char(modelName), ...
                     'project', char(projectName), ...
                     'branch', char(gitInfo.branch), ...
                     'additions', gitInfo.additions, ...
-                    'deletions', gitInfo.deletions));
+                    'deletions', gitInfo.deletions, ...
+                    'authMethod', authMethod, ...
+                    'executionMode', executionMode));
 
             catch ME
                 obj.Logger.warn('ChatUIController', 'status_bar_update_failed', struct(...

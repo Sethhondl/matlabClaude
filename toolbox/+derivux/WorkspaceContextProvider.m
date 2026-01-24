@@ -5,7 +5,7 @@ classdef WorkspaceContextProvider < handle
     %   and formats it as context for Claude to understand.
     %
     %   Example:
-    %       provider = claudecode.WorkspaceContextProvider();
+    %       provider = derivux.WorkspaceContextProvider();
     %       context = provider.getWorkspaceContext();
 
     properties
@@ -25,7 +25,7 @@ classdef WorkspaceContextProvider < handle
     methods
         function obj = WorkspaceContextProvider()
             %WORKSPACECONTEXTPROVIDER Constructor
-            obj.Logger = claudecode.logging.Logger.getInstance();
+            obj.Logger = derivux.logging.Logger.getInstance();
         end
 
         function context = getWorkspaceContext(obj)

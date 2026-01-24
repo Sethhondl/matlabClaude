@@ -4,8 +4,8 @@ classdef LogLevel < uint8
     %   comparison. Higher values = more severe/less verbose.
     %
     %   Example:
-    %       level = claudecode.logging.LogLevel.INFO;
-    %       if level >= claudecode.logging.LogLevel.WARN
+    %       level = derivux.logging.LogLevel.INFO;
+    %       if level >= derivux.logging.LogLevel.WARN
     %           % This is a warning or error level
     %       end
     %
@@ -43,21 +43,21 @@ classdef LogLevel < uint8
 
             switch upper(str)
                 case 'TRACE'
-                    level = claudecode.logging.LogLevel.TRACE;
+                    level = derivux.logging.LogLevel.TRACE;
                 case 'DEBUG'
-                    level = claudecode.logging.LogLevel.DEBUG;
+                    level = derivux.logging.LogLevel.DEBUG;
                 case 'INFO'
-                    level = claudecode.logging.LogLevel.INFO;
+                    level = derivux.logging.LogLevel.INFO;
                 case 'WARN'
-                    level = claudecode.logging.LogLevel.WARN;
+                    level = derivux.logging.LogLevel.WARN;
                 case 'WARNING'
-                    level = claudecode.logging.LogLevel.WARN;
+                    level = derivux.logging.LogLevel.WARN;
                 case 'ERROR'
-                    level = claudecode.logging.LogLevel.ERROR;
+                    level = derivux.logging.LogLevel.ERROR;
                 otherwise
                     warning('LogLevel:InvalidLevel', ...
                         'Unknown log level "%s", defaulting to INFO', str);
-                    level = claudecode.logging.LogLevel.INFO;
+                    level = derivux.logging.LogLevel.INFO;
             end
         end
 

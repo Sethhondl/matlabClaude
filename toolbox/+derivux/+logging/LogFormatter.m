@@ -5,7 +5,7 @@ classdef LogFormatter
     %
     %   Example:
     %       entry = struct('level', 'INFO', 'event', 'test');
-    %       jsonStr = claudecode.logging.LogFormatter.toJson(entry);
+    %       jsonStr = derivux.logging.LogFormatter.toJson(entry);
     %
     %   See also: Logger, LogConfig
 
@@ -29,7 +29,7 @@ classdef LogFormatter
                 jsonStr = jsonencode(data);
             catch ME
                 % Fallback for problematic data
-                jsonStr = claudecode.logging.LogFormatter.manualEncode(data);
+                jsonStr = derivux.logging.LogFormatter.manualEncode(data);
             end
         end
 
@@ -64,7 +64,7 @@ classdef LogFormatter
             end
 
             % Convert level to string if needed
-            if isa(level, 'claudecode.logging.LogLevel')
+            if isa(level, 'derivux.logging.LogLevel')
                 levelStr = string(level);
             else
                 levelStr = upper(string(level));
@@ -72,7 +72,7 @@ classdef LogFormatter
 
             % Build entry structure
             entry = struct();
-            entry.ts = claudecode.logging.LogFormatter.isoTimestamp();
+            entry.ts = derivux.logging.LogFormatter.isoTimestamp();
             entry.level = levelStr;
 
             if options.SessionId ~= ""
@@ -84,7 +84,7 @@ classdef LogFormatter
 
             % Add data if not empty
             if ~isempty(data) && ~(isstruct(data) && isempty(fieldnames(data)))
-                entry.data = claudecode.logging.LogFormatter.sanitizeData(data);
+                entry.data = derivux.logging.LogFormatter.sanitizeData(data);
             end
 
             % Add optional fields
@@ -123,13 +123,13 @@ classdef LogFormatter
                 for i = 1:numel(fields)
                     fieldName = fields{i};
                     fieldValue = data.(fieldName);
-                    sanitized.(fieldName) = claudecode.logging.LogFormatter.sanitizeValue(fieldValue);
+                    sanitized.(fieldName) = derivux.logging.LogFormatter.sanitizeValue(fieldValue);
                 end
             elseif iscell(data)
-                sanitized = cellfun(@claudecode.logging.LogFormatter.sanitizeValue, ...
+                sanitized = cellfun(@derivux.logging.LogFormatter.sanitizeValue, ...
                     data, 'UniformOutput', false);
             else
-                sanitized = claudecode.logging.LogFormatter.sanitizeValue(data);
+                sanitized = derivux.logging.LogFormatter.sanitizeValue(data);
             end
         end
 
@@ -155,9 +155,9 @@ classdef LogFormatter
             elseif isduration(value)
                 val = milliseconds(value);
             elseif isstruct(value)
-                val = claudecode.logging.LogFormatter.sanitizeData(value);
+                val = derivux.logging.LogFormatter.sanitizeData(value);
             elseif iscell(value)
-                val = cellfun(@claudecode.logging.LogFormatter.sanitizeValue, ...
+                val = cellfun(@derivux.logging.LogFormatter.sanitizeValue, ...
                     value, 'UniformOutput', false);
             elseif isa(value, 'MException')
                 val = struct('identifier', value.identifier, ...
@@ -166,7 +166,7 @@ classdef LogFormatter
                 % Try to convert objects to struct
                 try
                     val = struct(value);
-                    val = claudecode.logging.LogFormatter.sanitizeData(val);
+                    val = derivux.logging.LogFormatter.sanitizeData(val);
                 catch
                     val = class(value);
                 end
@@ -229,12 +229,12 @@ classdef LogFormatter
                 parts = cell(1, numel(fields));
                 for i = 1:numel(fields)
                     key = fields{i};
-                    val = claudecode.logging.LogFormatter.manualEncode(data.(key));
+                    val = derivux.logging.LogFormatter.manualEncode(data.(key));
                     parts{i} = sprintf('"%s":%s', key, val);
                 end
                 jsonStr = sprintf('{%s}', strjoin(parts, ','));
             elseif iscell(data)
-                parts = cellfun(@claudecode.logging.LogFormatter.manualEncode, ...
+                parts = cellfun(@derivux.logging.LogFormatter.manualEncode, ...
                     data, 'UniformOutput', false);
                 jsonStr = sprintf('[%s]', strjoin(parts, ','));
             elseif isempty(data)

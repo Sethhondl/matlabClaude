@@ -1,24 +1,24 @@
-classdef ClaudeCodeApp < handle
-    %CLAUDECODEAPP Main entry point for Claude Code MATLAB integration
+classdef DerivuxApp < handle
+    %DERIVUXAPP Main entry point for Derivux MATLAB integration
     %
-    %   This class creates and manages the Claude Code assistant interface
+    %   This class creates and manages the Derivux assistant interface
     %   with an embedded HTML chat interface. By default, the window docks
     %   into the MATLAB desktop as a side panel that can be tiled alongside
     %   the Editor and other tools.
     %
     %   Example:
-    %       app = claudecode.ClaudeCodeApp();
+    %       app = derivux.DerivuxApp();
     %       app.launch();
     %
     %   Or use the convenience function:
-    %       claudecode.launch()
+    %       derivux.launch()
     %
     %   Docking controls:
     %       app.dock()      - Dock into MATLAB desktop
     %       app.undock()    - Undock to floating window
     %       app.isDocked()  - Check current dock state
     %
-    %   Tip: After launching, right-click the "Claude Code" tab and select
+    %   Tip: After launching, right-click the "Derivux" tab and select
     %   "Tile Right" to position it as a persistent side panel.
 
     properties (SetAccess = private)
@@ -37,7 +37,7 @@ classdef ClaudeCodeApp < handle
     end
 
     properties (Constant, Access = private)
-        APP_TITLE = 'Claude Code'
+        APP_TITLE = 'Derivux'
         DEFAULT_WIDTH = 450
         DEFAULT_HEIGHT = 700
     end
@@ -47,8 +47,8 @@ classdef ClaudeCodeApp < handle
     end
 
     methods
-        function obj = ClaudeCodeApp()
-            %CLAUDECODEAPP Constructor
+        function obj = DerivuxApp()
+            %DERIVUXAPP Constructor
 
             obj.StartTime = datetime('now');
             obj.Settings = obj.loadSettings();
@@ -60,7 +60,7 @@ classdef ClaudeCodeApp < handle
             obj.initialize();
 
             % Log app initialization
-            obj.Logger.info('ClaudeCodeApp', 'app_initialized', struct(...
+            obj.Logger.info('DerivuxApp', 'app_initialized', struct(...
                 'version', obj.getVersion(), ...
                 'settings', obj.getLoggableSettings(), ...
                 'matlab_version', version));
@@ -77,16 +77,16 @@ classdef ClaudeCodeApp < handle
 
             if obj.IsOpen && ~isempty(obj.Figure) && isvalid(obj.Figure)
                 % Already open, bring to front
-                obj.Logger.debug('ClaudeCodeApp', 'launch_already_open');
+                obj.Logger.debug('DerivuxApp', 'launch_already_open');
                 figure(obj.Figure);
                 return;
             end
 
-            obj.Logger.info('ClaudeCodeApp', 'launch_started');
+            obj.Logger.info('DerivuxApp', 'launch_started');
 
             % Verify Claude CLI is available via Python
             if ~obj.PythonBridge.is_claude_available()
-                obj.Logger.warn('ClaudeCodeApp', 'claude_cli_not_found');
+                obj.Logger.warn('DerivuxApp', 'claude_cli_not_found');
                 obj.showSetupInstructions();
                 return;
             end
@@ -94,7 +94,7 @@ classdef ClaudeCodeApp < handle
             obj.createWindow();
             obj.IsOpen = true;
 
-            obj.Logger.info('ClaudeCodeApp', 'launch_complete', struct(...
+            obj.Logger.info('DerivuxApp', 'launch_complete', struct(...
                 'is_docked', obj.IsDocked));
         end
 
@@ -109,7 +109,7 @@ classdef ClaudeCodeApp < handle
 
             % Log app closure
             if ~isempty(obj.Logger) && isvalid(obj.Logger)
-                obj.Logger.info('ClaudeCodeApp', 'app_closed', struct(...
+                obj.Logger.info('DerivuxApp', 'app_closed', struct(...
                     'session_duration_sec', sessionDurationSec));
                 obj.Logger.close();
             end
@@ -198,7 +198,7 @@ classdef ClaudeCodeApp < handle
             obj.setupPythonPath();
 
             % Create Python bridge and configure logging
-            obj.PythonBridge = py.claudecode.MatlabBridge();
+            obj.PythonBridge = py.derivux.MatlabBridge();
 
             % Pass session ID and logging config to Python for correlation
             try
@@ -210,12 +210,12 @@ classdef ClaudeCodeApp < handle
                     'log_sensitive_data', obj.Settings.logSensitiveData));
                 obj.PythonBridge.configure_logging(loggingConfig);
             catch ME
-                obj.Logger.warn('ClaudeCodeApp', 'python_logging_config_failed', struct(...
+                obj.Logger.warn('DerivuxApp', 'python_logging_config_failed', struct(...
                     'error', ME.message));
             end
 
             % Create Simulink bridge (MATLAB-side)
-            obj.SimulinkBridge = claudecode.SimulinkBridge();
+            obj.SimulinkBridge = derivux.SimulinkBridge();
         end
 
         function setupPythonPath(~)
@@ -261,7 +261,7 @@ classdef ClaudeCodeApp < handle
             end
 
             % Create chat controller with Python bridge
-            obj.ChatController = claudecode.ChatUIController(...
+            obj.ChatController = derivux.ChatUIController(...
                 obj.Figure, obj.PythonBridge);
 
             % Connect Simulink bridge
@@ -304,7 +304,7 @@ classdef ClaudeCodeApp < handle
 
             % Load full settings if available
             try
-                fullSettings = claudecode.config.Settings.load();
+                fullSettings = derivux.config.Settings.load();
                 settings.loggingEnabled = fullSettings.loggingEnabled;
                 settings.logLevel = fullSettings.logLevel;
                 settings.logDirectory = fullSettings.logDirectory;
@@ -326,7 +326,7 @@ classdef ClaudeCodeApp < handle
             %INITIALIZELOGGING Initialize the logging system
 
             % Get the singleton logger
-            obj.Logger = claudecode.logging.Logger.getInstance();
+            obj.Logger = derivux.logging.Logger.getInstance();
 
             % Configure from settings
             obj.Logger.setLevel(obj.Settings.logLevel);
@@ -376,7 +376,7 @@ classdef ClaudeCodeApp < handle
             persistent instance;
 
             if isempty(instance) || ~isvalid(instance)
-                instance = claudecode.ClaudeCodeApp();
+                instance = derivux.DerivuxApp();
             end
 
             app = instance;

@@ -1,19 +1,19 @@
 function app = launch()
-%LAUNCH Launch the Claude Code assistant
+%LAUNCH Launch the Derivux assistant
 %
-%   CLAUDECODE.LAUNCH() opens the Claude Code assistant panel.
+%   DERIVUX.LAUNCH() opens the Derivux assistant panel.
 %
-%   app = CLAUDECODE.LAUNCH() returns the app instance.
+%   app = DERIVUX.LAUNCH() returns the app instance.
 %
 %   Example:
-%       claudecode.launch()
+%       derivux.launch()
 %
-%   See also: claudecode.ClaudeCodeApp, claudecode.configurePython
+%   See also: derivux.DerivuxApp, derivux.configurePython
 
     % Auto-configure Python 3.10+ for Claude Agent SDK
-    claudecode.configurePython();
+    derivux.configurePython();
 
-    app = claudecode.ClaudeCodeApp.getInstance();
+    app = derivux.DerivuxApp.getInstance();
     app.launch();
 
     if nargout == 0

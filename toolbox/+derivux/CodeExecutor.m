@@ -5,7 +5,7 @@ classdef CodeExecutor < handle
     %   responses, with validation to block potentially dangerous operations.
     %
     %   Example:
-    %       executor = claudecode.CodeExecutor();
+    %       executor = derivux.CodeExecutor();
     %       [result, isError] = executor.execute('x = 1 + 1');
 
     properties
@@ -35,7 +35,7 @@ classdef CodeExecutor < handle
         function obj = CodeExecutor()
             %CODEEXECUTOR Constructor
 
-            obj.Logger = claudecode.logging.Logger.getInstance();
+            obj.Logger = derivux.logging.Logger.getInstance();
         end
 
         function [result, isError] = execute(obj, code)

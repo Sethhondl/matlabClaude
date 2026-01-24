@@ -10,7 +10,7 @@ function configured = configurePython()
 %   1. Homebrew Python 3.13, 3.12, 3.11, 3.10
 %   2. System Python 3.10+
 %
-%   See also: pyenv, claudecode.launch
+%   See also: pyenv, derivux.launch
 
     configured = false;
 
@@ -24,9 +24,9 @@ function configured = configurePython()
             configured = true;
             return
         else
-            warning('claudecode:pythonVersion', ...
+            warning('derivux:pythonVersion', ...
                 ['Python %s is loaded but Claude Agent SDK requires 3.10+.\n' ...
-                 'Restart MATLAB and run claudecode.launch() again to auto-configure.'], ...
+                 'Restart MATLAB and run derivux.launch() again to auto-configure.'], ...
                 pe.Version);
             return
         end
@@ -63,7 +63,7 @@ function configured = configurePython()
     end
 
     % No suitable Python found
-    warning('claudecode:noPython', ...
+    warning('derivux:noPython', ...
         ['Could not find Python 3.10+.\n' ...
          'Install with: brew install python@3.13\n' ...
          'Then install SDK: /usr/local/opt/python@3.13/bin/python3.13 -m pip install claude-agent-sdk']);

@@ -5,7 +5,7 @@ classdef SimulinkBridge < handle
     %   through programmatic APIs.
     %
     %   Example:
-    %       bridge = claudecode.SimulinkBridge();
+    %       bridge = derivux.SimulinkBridge();
     %       bridge.setCurrentModel('myModel');
     %       context = bridge.buildSimulinkContext();
 
@@ -21,7 +21,7 @@ classdef SimulinkBridge < handle
     methods
         function obj = SimulinkBridge()
             %SIMULINKBRIDGE Constructor
-            obj.Logger = claudecode.logging.Logger.getInstance();
+            obj.Logger = derivux.logging.Logger.getInstance();
         end
 
         %% Model Discovery and Selection
@@ -477,7 +477,7 @@ classdef SimulinkBridge < handle
             try
                 obj.Logger.info('SimulinkBridge', 'optimize_layout_started', struct('model', obj.CurrentModel));
 
-                engine = claudecode.SimulinkLayoutEngine(obj.CurrentModel);
+                engine = derivux.SimulinkLayoutEngine(obj.CurrentModel);
                 engine.optimize('Spacing', options.Spacing);
 
                 result.success = true;
