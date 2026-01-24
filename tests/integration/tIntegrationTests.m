@@ -33,7 +33,7 @@ classdef tIntegrationTests < matlab.unittest.TestCase
         function testExecutionPolicyMapsToSettings(testCase)
             %TESTEXECUTIONPOLICYMAPSTOSETTINGS Verify policy maps to settings
 
-            settings = claudecode.config.Settings();
+            settings = derivux.config.Settings();
 
             % Verify codeExecutionMode values map to ExecutionPolicy
             validModes = {'auto', 'prompt', 'disabled'};
@@ -47,8 +47,8 @@ classdef tIntegrationTests < matlab.unittest.TestCase
         function testSettingsApplyToCodeExecutor(testCase)
             %TESTSETTINGSAPPLYTOCODEEXECUTOR Verify settings affect executor
 
-            settings = claudecode.config.Settings();
-            executor = claudecode.CodeExecutor();
+            settings = derivux.config.Settings();
+            executor = derivux.CodeExecutor();
 
             % Apply settings to executor
             executor.Timeout = settings.executionTimeout;
@@ -64,8 +64,8 @@ classdef tIntegrationTests < matlab.unittest.TestCase
         function testCodeExecutorModifiesWorkspace(testCase)
             %TESTCODEEXECUTORMODIFIESWORKSPACE Verify executor changes are visible
 
-            executor = claudecode.CodeExecutor();
-            provider = claudecode.WorkspaceContextProvider();
+            executor = derivux.CodeExecutor();
+            provider = derivux.WorkspaceContextProvider();
 
             % Execute code that creates a variable
             executor.execute('integration_test_var = 42;');
@@ -80,7 +80,7 @@ classdef tIntegrationTests < matlab.unittest.TestCase
         function testWorkspaceContextReflectsChanges(testCase)
             %TESTWORKSPACECONTEXTREFLECTSCHANGES Verify real-time updates
 
-            provider = claudecode.WorkspaceContextProvider();
+            provider = derivux.WorkspaceContextProvider();
 
             % Initial context
             context1 = provider.getWorkspaceContext();
@@ -100,7 +100,7 @@ classdef tIntegrationTests < matlab.unittest.TestCase
             %TESTSETTINGSSAVEANDLOADROUNDTRIP Verify settings persistence
 
             % Create and modify settings
-            settings1 = claudecode.config.Settings();
+            settings1 = derivux.config.Settings();
             originalTheme = settings1.theme;
             originalTimeout = settings1.executionTimeout;
 
@@ -109,7 +109,7 @@ classdef tIntegrationTests < matlab.unittest.TestCase
             settings1.save();
 
             % Load in new instance
-            settings2 = claudecode.config.Settings.load();
+            settings2 = derivux.config.Settings.load();
 
             testCase.verifyEqual(settings2.theme, 'light');
             testCase.verifyEqual(settings2.executionTimeout, 60);
@@ -124,8 +124,8 @@ classdef tIntegrationTests < matlab.unittest.TestCase
         function testExecutionPolicyAutoAllowsExecution(testCase)
             %TESTEXECUTIONPOLICYAUTOALLOWSEXECUTION Verify Auto policy
 
-            policy = claudecode.config.ExecutionPolicy.Auto;
-            executor = claudecode.CodeExecutor();
+            policy = derivux.config.ExecutionPolicy.Auto;
+            executor = derivux.CodeExecutor();
 
             % Auto should not require approval
             executor.RequireApproval = policy.requiresApproval();
@@ -139,7 +139,7 @@ classdef tIntegrationTests < matlab.unittest.TestCase
         function testExecutionPolicyDisabledPreventsExecution(testCase)
             %TESTEXECUTIONPOLICYDISABLEDPREVENTSEXECUTION Verify Disabled policy
 
-            policy = claudecode.config.ExecutionPolicy.Disabled;
+            policy = derivux.config.ExecutionPolicy.Disabled;
 
             testCase.verifyFalse(policy.isEnabled(), ...
                 'Disabled policy should report not enabled');
@@ -149,7 +149,7 @@ classdef tIntegrationTests < matlab.unittest.TestCase
         function testValidationAndLoggingIntegration(testCase)
             %TESTVALIDATIONANDLOGGINGINTEGRATION Verify validation logs correctly
 
-            executor = claudecode.CodeExecutor();
+            executor = derivux.CodeExecutor();
             executor.LogExecutions = true;
             executor.clearLog();
 
@@ -172,17 +172,17 @@ classdef tIntegrationTests < matlab.unittest.TestCase
             %TESTCOMPLETEWORKFLOW Verify full workflow
 
             % 1. Load settings
-            settings = claudecode.config.Settings();
-            testCase.verifyClass(settings, 'claudecode.config.Settings');
+            settings = derivux.config.Settings();
+            testCase.verifyClass(settings, 'derivux.config.Settings');
 
             % 2. Create executor with settings
-            executor = claudecode.CodeExecutor();
+            executor = derivux.CodeExecutor();
             executor.Timeout = settings.executionTimeout;
             testCase.verifyEqual(executor.Timeout, settings.executionTimeout);
 
             % 3. Create workspace provider
-            provider = claudecode.WorkspaceContextProvider();
-            testCase.verifyClass(provider, 'claudecode.WorkspaceContextProvider');
+            provider = derivux.WorkspaceContextProvider();
+            testCase.verifyClass(provider, 'derivux.WorkspaceContextProvider');
 
             % 4. Execute code
             [result, isError] = executor.execute('workflow_test = magic(3);');
@@ -197,8 +197,8 @@ classdef tIntegrationTests < matlab.unittest.TestCase
         function testSimulinkBridgeWithWorkspaceProvider(testCase)
             %TESTSIMULINKBRIDGEWITHWORKSPACEPROVIDER Verify components coexist
 
-            bridge = claudecode.SimulinkBridge();
-            provider = claudecode.WorkspaceContextProvider();
+            bridge = derivux.SimulinkBridge();
+            provider = derivux.WorkspaceContextProvider();
 
             % Both should work independently
             bridgeContext = bridge.buildSimulinkContext();
@@ -212,7 +212,7 @@ classdef tIntegrationTests < matlab.unittest.TestCase
         function testAllSettingsHaveDefaults(testCase)
             %TESTALLSETTINGSHAVEDEFAULTS Verify all properties have values
 
-            settings = claudecode.config.Settings();
+            settings = derivux.config.Settings();
             props = properties(settings);
 
             for i = 1:length(props)
@@ -228,7 +228,7 @@ classdef tIntegrationTests < matlab.unittest.TestCase
         function testErrorHandlingAcrossComponents(testCase)
             %TESTERRORHANDLINGACROSSCOMPONENTS Verify errors are handled gracefully
 
-            executor = claudecode.CodeExecutor();
+            executor = derivux.CodeExecutor();
             executor.LogExecutions = true;
             executor.clearLog();
 

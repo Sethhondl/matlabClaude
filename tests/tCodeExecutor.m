@@ -10,7 +10,7 @@ classdef tCodeExecutor < matlab.unittest.TestCase
 
     methods (TestMethodSetup)
         function createExecutor(testCase)
-            testCase.Executor = claudecode.CodeExecutor();
+            testCase.Executor = derivux.CodeExecutor();
         end
     end
 
@@ -25,8 +25,8 @@ classdef tCodeExecutor < matlab.unittest.TestCase
         function testConstructor(testCase)
             %TESTCONSTRUCTOR Verify constructor creates valid object
 
-            executor = claudecode.CodeExecutor();
-            testCase.verifyClass(executor, 'claudecode.CodeExecutor');
+            executor = derivux.CodeExecutor();
+            testCase.verifyClass(executor, 'derivux.CodeExecutor');
         end
 
         function testDefaultProperties(testCase)

@@ -42,7 +42,7 @@ classdef tChatUIController < matlab.unittest.TestCase
             % Try to create Python bridge if available
             if testCase.PythonAvailable
                 try
-                    testCase.PythonBridge = py.claudecode.MatlabBridge();
+                    testCase.PythonBridge = py.derivux.MatlabBridge();
                 catch
                     testCase.PythonBridge = [];
                     testCase.PythonAvailable = false;
@@ -71,10 +71,10 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
-            testCase.verifyClass(testCase.Controller, 'claudecode.ChatUIController');
+            testCase.verifyClass(testCase.Controller, 'derivux.ChatUIController');
         end
 
         function testControllerHasSimulinkBridgeProperty(testCase)
@@ -82,7 +82,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             testCase.verifyTrue(isprop(testCase.Controller, 'SimulinkBridge'));
@@ -93,7 +93,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             testCase.verifyTrue(isprop(testCase.Controller, 'GitProvider'));
@@ -105,7 +105,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             % Give UI time to initialize
@@ -121,7 +121,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             % Should not error, just warn
@@ -135,7 +135,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             % Should not error (may warn if not ready)
@@ -151,7 +151,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             try
@@ -166,7 +166,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             try
@@ -181,7 +181,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             try
@@ -196,7 +196,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             try
@@ -211,7 +211,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             try
@@ -227,7 +227,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            controller = claudecode.ChatUIController(...
+            controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
             delete(controller);
 
@@ -241,7 +241,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             % Should not error when starting streaming
@@ -259,7 +259,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             % Should not error when ending streaming
@@ -276,7 +276,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             % Normal sequence: start -> chunk -> end
@@ -295,7 +295,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             for i = 1:3
@@ -317,10 +317,10 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
-            bridge = claudecode.SimulinkBridge();
+            bridge = derivux.SimulinkBridge();
             testCase.Controller.SimulinkBridge = bridge;
 
             testCase.verifyEqual(testCase.Controller.SimulinkBridge, bridge);
@@ -331,12 +331,12 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             % SimulinkBridge may be empty initially
             bridge = testCase.Controller.SimulinkBridge;
-            testCase.verifyTrue(isempty(bridge) || isa(bridge, 'claudecode.SimulinkBridge'));
+            testCase.verifyTrue(isempty(bridge) || isa(bridge, 'derivux.SimulinkBridge'));
         end
 
         %% Multiple Message Handling Tests
@@ -345,7 +345,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             for i = 1:5
@@ -364,7 +364,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             for i = 1:3
@@ -383,7 +383,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             try
@@ -406,7 +406,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             statuses = {'ready', 'connecting', 'error', 'processing'};
@@ -428,7 +428,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             testCase.verifyTrue(isprop(testCase.Controller, 'GitProvider'));
@@ -440,7 +440,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             % Give UI time to initialize
@@ -459,11 +459,11 @@ classdef tChatUIController < matlab.unittest.TestCase
             smallFig = uifigure('Visible', 'off', 'Position', [100, 100, 200, 300]);
             smallPanel = uipanel(smallFig, 'Position', [0, 0, 200, 300]);
 
-            controller = claudecode.ChatUIController(...
+            controller = derivux.ChatUIController(...
                 smallPanel, testCase.PythonBridge);
 
             % Should create without error
-            testCase.verifyClass(controller, 'claudecode.ChatUIController');
+            testCase.verifyClass(controller, 'derivux.ChatUIController');
 
             delete(controller);
             delete(smallFig);
@@ -475,7 +475,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             try
@@ -492,7 +492,7 @@ classdef tChatUIController < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.PythonAvailable, 'Python not available');
 
-            testCase.Controller = claudecode.ChatUIController(...
+            testCase.Controller = derivux.ChatUIController(...
                 testCase.Panel, testCase.PythonBridge);
 
             data = struct('message', 'test', 'code', 'x = 1;', 'nested', struct('a', 1));

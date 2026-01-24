@@ -22,7 +22,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
     methods (TestClassSetup)
         function checkClassExists(testCase)
             % Check if ClaudeProcessManager class exists
-            testCase.ClassExists = exist('claudecode.ClaudeProcessManager', 'class') > 0;
+            testCase.ClassExists = exist('derivux.ClaudeProcessManager', 'class') > 0;
         end
     end
 
@@ -33,9 +33,9 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
             testCase.assumeTrue(testCase.ClassExists, ...
                 'ClaudeProcessManager class not found - may have been renamed or removed');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
 
-            testCase.verifyClass(pm, 'claudecode.ClaudeProcessManager');
+            testCase.verifyClass(pm, 'derivux.ClaudeProcessManager');
             testCase.verifyFalse(pm.isClaudeAvailable() == -1, ...
                 'isClaudeAvailable should return boolean');
         end
@@ -45,7 +45,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             result = pm.isClaudeAvailable();
 
             testCase.verifyClass(result, 'logical');
@@ -56,7 +56,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             delete(pm);
 
             % Should not error - if we get here, destruction was clean
@@ -68,7 +68,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
 
             try
                 response = pm.sendMessage('test', 'timeout', 1000);
@@ -84,8 +84,8 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
-            testCase.verifyClass(pm, 'claudecode.ClaudeProcessManager');
+            pm = derivux.ClaudeProcessManager();
+            testCase.verifyClass(pm, 'derivux.ClaudeProcessManager');
         end
 
         function testStopProcess(testCase)
@@ -93,7 +93,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             pm.stopProcess();
             testCase.verifyTrue(true);
         end
@@ -103,7 +103,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             testCase.verifyEqual(pm.LastError, '');
         end
 
@@ -113,7 +113,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             pm.stopProcess();
             pm.stopProcess();
             pm.stopProcess();
@@ -125,7 +125,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             pm.stopProcess();
             delete(pm);
             testCase.verifyTrue(true);
@@ -137,7 +137,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             testCase.verifyEqual(pm.LastError, '');
         end
 
@@ -146,7 +146,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             err1 = pm.LastError;
             err2 = pm.LastError;
             testCase.verifyEqual(err1, err2, 'LastError should be consistent');
@@ -157,7 +157,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             testCase.verifyClass(pm.LastError, 'char');
         end
 
@@ -167,7 +167,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             try
                 response = pm.sendMessage('test', 'timeout', 1);
                 testCase.verifyTrue(isstruct(response));
@@ -182,11 +182,11 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm1 = claudecode.ClaudeProcessManager();
-            pm2 = claudecode.ClaudeProcessManager();
+            pm1 = derivux.ClaudeProcessManager();
+            pm2 = derivux.ClaudeProcessManager();
 
-            testCase.verifyClass(pm1, 'claudecode.ClaudeProcessManager');
-            testCase.verifyClass(pm2, 'claudecode.ClaudeProcessManager');
+            testCase.verifyClass(pm1, 'derivux.ClaudeProcessManager');
+            testCase.verifyClass(pm2, 'derivux.ClaudeProcessManager');
             testCase.verifyTrue(pm1.isClaudeAvailable() == pm2.isClaudeAvailable());
 
             delete(pm1);
@@ -199,7 +199,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             result1 = pm.isClaudeAvailable();
             result2 = pm.isClaudeAvailable();
             result3 = pm.isClaudeAvailable();
@@ -212,7 +212,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             pm.stopProcess();
             result = pm.isClaudeAvailable();
             testCase.verifyClass(result, 'logical');
@@ -224,7 +224,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             delete(pm);
             testCase.verifyFalse(isvalid(pm));
         end
@@ -234,7 +234,7 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             try
                 pm.sendMessage('test', 'timeout', 100);
             catch
@@ -249,12 +249,12 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
+            pm = derivux.ClaudeProcessManager();
             try
                 pm.sendMessage('test', 'timeout', 1);
             catch
             end
-            testCase.verifyClass(pm, 'claudecode.ClaudeProcessManager');
+            testCase.verifyClass(pm, 'derivux.ClaudeProcessManager');
             result = pm.isClaudeAvailable();
             testCase.verifyClass(result, 'logical');
         end
@@ -266,8 +266,8 @@ classdef tClaudeProcessManager < matlab.unittest.TestCase
 
             testCase.assumeTrue(testCase.ClassExists, 'ClaudeProcessManager not available');
 
-            pm = claudecode.ClaudeProcessManager();
-            testCase.verifyClass(pm, 'claudecode.ClaudeProcessManager');
+            pm = derivux.ClaudeProcessManager();
+            testCase.verifyClass(pm, 'derivux.ClaudeProcessManager');
         end
     end
 end

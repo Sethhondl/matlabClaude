@@ -142,7 +142,7 @@ function results = runAllTests(options)
             import matlab.unittest.plugins.codecoverage.CoberturaFormat
 
             % Get source files to analyze
-            sourceDir = fullfile(testDir, '..', 'toolbox', '+claudecode');
+            sourceDir = fullfile(testDir, '..', 'toolbox', '+derivux');
 
             % Generate coverage report
             coverageFile = fullfile(options.ReportFolder, 'coverage.xml');

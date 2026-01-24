@@ -10,7 +10,7 @@ classdef tSettings < matlab.unittest.TestCase
 
     methods (TestMethodSetup)
         function createSettings(testCase)
-            testCase.Settings = claudecode.config.Settings();
+            testCase.Settings = derivux.config.Settings();
         end
     end
 
@@ -19,8 +19,8 @@ classdef tSettings < matlab.unittest.TestCase
         function testConstructor(testCase)
             %TESTCONSTRUCTOR Verify constructor creates valid object
 
-            settings = claudecode.config.Settings();
-            testCase.verifyClass(settings, 'claudecode.config.Settings');
+            settings = derivux.config.Settings();
+            testCase.verifyClass(settings, 'derivux.config.Settings');
         end
 
         %% Default Values Tests
@@ -122,8 +122,8 @@ classdef tSettings < matlab.unittest.TestCase
         function testLoadReturnsSettings(testCase)
             %TESTLOADRETURNSSETTINGS Verify load returns settings object
 
-            settings = claudecode.config.Settings.load();
-            testCase.verifyClass(settings, 'claudecode.config.Settings');
+            settings = derivux.config.Settings.load();
+            testCase.verifyClass(settings, 'derivux.config.Settings');
         end
 
         %% Save Tests
@@ -146,7 +146,7 @@ classdef tSettings < matlab.unittest.TestCase
             testCase.Settings.save();
 
             % Load and verify
-            loaded = claudecode.config.Settings.load();
+            loaded = derivux.config.Settings.load();
             testCase.verifyEqual(loaded.theme, 'light');
             testCase.verifyEqual(loaded.fontSize, 16);
 
@@ -268,7 +268,7 @@ classdef tSettings < matlab.unittest.TestCase
                 fclose(fid);
 
                 % Load should return defaults and warn
-                loadedSettings = claudecode.config.Settings.load();
+                loadedSettings = derivux.config.Settings.load();
 
                 % Should have default values
                 testCase.verifyEqual(loadedSettings.theme, 'dark');
@@ -364,13 +364,13 @@ classdef tSettings < matlab.unittest.TestCase
                 testCase.Settings.theme = 'light';
                 testCase.Settings.save();
 
-                loaded = claudecode.config.Settings.load();
+                loaded = derivux.config.Settings.load();
                 testCase.verifyEqual(loaded.theme, 'light');
 
                 testCase.Settings.theme = 'dark';
                 testCase.Settings.save();
 
-                loaded = claudecode.config.Settings.load();
+                loaded = derivux.config.Settings.load();
                 testCase.verifyEqual(loaded.theme, 'dark');
             end
 
@@ -384,7 +384,7 @@ classdef tSettings < matlab.unittest.TestCase
             %TESTRESETRESTORESALLPROPERTIES Verify complete reset
 
             % Get default settings
-            defaultSettings = claudecode.config.Settings();
+            defaultSettings = derivux.config.Settings();
 
             % Modify multiple settings
             testCase.Settings.theme = 'light';

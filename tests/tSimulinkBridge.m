@@ -21,7 +21,7 @@ classdef tSimulinkBridge < matlab.unittest.TestCase
 
     methods (TestMethodSetup)
         function createBridge(testCase)
-            testCase.Bridge = claudecode.SimulinkBridge();
+            testCase.Bridge = derivux.SimulinkBridge();
         end
     end
 
@@ -46,8 +46,8 @@ classdef tSimulinkBridge < matlab.unittest.TestCase
         function testConstructor(testCase)
             %TESTCONSTRUCTOR Verify constructor creates valid object
 
-            bridge = claudecode.SimulinkBridge();
-            testCase.verifyClass(bridge, 'claudecode.SimulinkBridge');
+            bridge = derivux.SimulinkBridge();
+            testCase.verifyClass(bridge, 'derivux.SimulinkBridge');
         end
 
         function testInitialState(testCase)

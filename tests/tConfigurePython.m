@@ -12,7 +12,7 @@ classdef tConfigurePython < matlab.unittest.TestCase
         function testReturnsLogical(testCase)
             %TESTRETURNSLOGICAL Verify function returns logical
 
-            result = claudecode.configurePython();
+            result = derivux.configurePython();
             testCase.verifyClass(result, 'logical');
         end
 
@@ -20,8 +20,8 @@ classdef tConfigurePython < matlab.unittest.TestCase
         function testIdempotency(testCase)
             %TESTIDEMPOTENCY Verify calling twice returns same result
 
-            result1 = claudecode.configurePython();
-            result2 = claudecode.configurePython();
+            result1 = derivux.configurePython();
+            result2 = derivux.configurePython();
 
             testCase.verifyEqual(result1, result2, ...
                 'Calling configurePython twice should return same result');
@@ -35,7 +35,7 @@ classdef tConfigurePython < matlab.unittest.TestCase
             pe = pyenv;
 
             % Call configurePython
-            claudecode.configurePython();
+            derivux.configurePython();
 
             % Verify pyenv is unchanged (or still valid)
             peAfter = pyenv;
@@ -53,7 +53,7 @@ classdef tConfigurePython < matlab.unittest.TestCase
 
             if pe.Status == "Loaded"
                 ver = str2double(pe.Version);
-                result = claudecode.configurePython();
+                result = derivux.configurePython();
 
                 if ver >= 3.10
                     testCase.verifyTrue(result, ...
@@ -61,7 +61,7 @@ classdef tConfigurePython < matlab.unittest.TestCase
                 end
             else
                 % Python not loaded - result depends on system configuration
-                testCase.verifyClass(claudecode.configurePython(), 'logical');
+                testCase.verifyClass(derivux.configurePython(), 'logical');
             end
         end
 
@@ -76,7 +76,7 @@ classdef tConfigurePython < matlab.unittest.TestCase
 
                 if ver < 3.10
                     testCase.verifyWarning(...
-                        @() claudecode.configurePython(), ...
+                        @() derivux.configurePython(), ...
                         'claudecode:pythonVersion');
                 end
             end
@@ -88,7 +88,7 @@ classdef tConfigurePython < matlab.unittest.TestCase
 
             % This should not throw an error, even if Python is not configured
             try
-                result = claudecode.configurePython();
+                result = derivux.configurePython();
                 testCase.verifyClass(result, 'logical');
             catch ME
                 testCase.verifyFail(['configurePython should not error: ', ME.message]);
@@ -98,8 +98,8 @@ classdef tConfigurePython < matlab.unittest.TestCase
         function testFunctionExists(testCase)
             %TESTFUNCTIONEXISTS Verify function is accessible
 
-            testCase.verifyTrue(exist('claudecode.configurePython', 'file') > 0 || ...
-                exist('claudecode.configurePython', 'class') > 0, ...
+            testCase.verifyTrue(exist('derivux.configurePython', 'file') > 0 || ...
+                exist('derivux.configurePython', 'class') > 0, ...
                 'configurePython should exist in claudecode package');
         end
 
@@ -110,7 +110,7 @@ classdef tConfigurePython < matlab.unittest.TestCase
             pe1 = pyenv;
 
             for i = 1:5
-                claudecode.configurePython();
+                derivux.configurePython();
             end
 
             pe2 = pyenv;

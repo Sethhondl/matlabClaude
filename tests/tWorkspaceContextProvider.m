@@ -11,7 +11,7 @@ classdef tWorkspaceContextProvider < matlab.unittest.TestCase
 
     methods (TestMethodSetup)
         function createProvider(testCase)
-            testCase.Provider = claudecode.WorkspaceContextProvider();
+            testCase.Provider = derivux.WorkspaceContextProvider();
 
             % Store names of existing variables to avoid clearing them
             testCase.OriginalVars = evalin('base', 'who');
@@ -37,8 +37,8 @@ classdef tWorkspaceContextProvider < matlab.unittest.TestCase
         function testConstructor(testCase)
             %TESTCONSTRUCTOR Verify constructor creates valid object
 
-            provider = claudecode.WorkspaceContextProvider();
-            testCase.verifyClass(provider, 'claudecode.WorkspaceContextProvider');
+            provider = derivux.WorkspaceContextProvider();
+            testCase.verifyClass(provider, 'derivux.WorkspaceContextProvider');
         end
 
         function testDefaultProperties(testCase)

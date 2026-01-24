@@ -23,25 +23,25 @@ classdef tLaunch < matlab.unittest.TestCase
         function testFunctionExists(testCase)
             %TESTFUNCTIONEXISTS Verify launch function is accessible
 
-            testCase.verifyTrue(exist('claudecode.launch', 'file') > 0, ...
+            testCase.verifyTrue(exist('derivux.launch', 'file') > 0, ...
                 'launch function should exist in claudecode package');
         end
 
         function testFunctionHasOutput(testCase)
             %TESTFUNCTIONHASOUTPUT Verify function can return output
 
-            nOut = nargout('claudecode.launch');
+            nOut = nargout('derivux.launch');
             testCase.verifyGreaterThanOrEqual(nOut, 0, ...
                 'launch should support optional output');
         end
 
         %% Return Type Tests
-        function testReturnsClaudeCodeApp(testCase)
-            %TESTRETURNSCLAUDECODEAPP Verify returns ClaudeCodeApp instance
+        function testReturnsDerivuxApp(testCase)
+            %TESTRETURNSCLAUDECODEAPP Verify returns DerivuxApp instance
 
             try
-                testCase.App = claudecode.launch();
-                testCase.verifyClass(testCase.App, 'claudecode.ClaudeCodeApp');
+                testCase.App = derivux.launch();
+                testCase.verifyClass(testCase.App, 'derivux.DerivuxApp');
             catch ME
                 % May fail if Python/Claude not available - that's OK for this test
                 if contains(ME.message, 'Python') || contains(ME.message, 'Claude')
@@ -57,8 +57,8 @@ classdef tLaunch < matlab.unittest.TestCase
             %TESTRETURNSSINGLETON Verify multiple calls return same instance
 
             try
-                app1 = claudecode.launch();
-                app2 = claudecode.launch();
+                app1 = derivux.launch();
+                app2 = derivux.launch();
 
                 testCase.verifyEqual(app1, app2, ...
                     'launch should return singleton instance');
@@ -74,11 +74,11 @@ classdef tLaunch < matlab.unittest.TestCase
         end
 
         function testSameAsGetInstance(testCase)
-            %TESTSAMEASGETINSTANCE Verify same as ClaudeCodeApp.getInstance
+            %TESTSAMEASGETINSTANCE Verify same as DerivuxApp.getInstance
 
             try
-                app1 = claudecode.launch();
-                app2 = claudecode.ClaudeCodeApp.getInstance();
+                app1 = derivux.launch();
+                app2 = derivux.DerivuxApp.getInstance();
 
                 testCase.verifyEqual(app1, app2, ...
                     'launch should return same instance as getInstance');
@@ -101,9 +101,9 @@ classdef tLaunch < matlab.unittest.TestCase
             % by either succeeding or failing with a clear error (not crashing)
 
             try
-                testCase.App = claudecode.launch();
+                testCase.App = derivux.launch();
                 % If we get here, launch succeeded
-                testCase.verifyClass(testCase.App, 'claudecode.ClaudeCodeApp');
+                testCase.verifyClass(testCase.App, 'derivux.DerivuxApp');
             catch ME
                 % Verify the error is related to Python/Claude, not a bug
                 validErrors = {'Python', 'Claude', 'pyenv', 'py.'};
@@ -136,7 +136,7 @@ classdef tLaunch < matlab.unittest.TestCase
             pe1 = pyenv;
 
             try
-                testCase.App = claudecode.launch();
+                testCase.App = derivux.launch();
             catch
                 % Ignore launch errors
             end
@@ -154,11 +154,11 @@ classdef tLaunch < matlab.unittest.TestCase
 
             try
                 % Call without output assignment
-                claudecode.launch();
+                derivux.launch();
 
                 % If we get here, launch succeeded without error
                 % Clean up using getInstance
-                app = claudecode.ClaudeCodeApp.getInstance();
+                app = derivux.DerivuxApp.getInstance();
                 if ~isempty(app) && isvalid(app)
                     app.close();
                 end

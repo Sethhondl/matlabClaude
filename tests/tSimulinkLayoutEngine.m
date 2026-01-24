@@ -23,7 +23,7 @@ classdef tSimulinkLayoutEngine < matlab.unittest.TestCase
         function setupTest(testCase)
             % Create fresh engine for each test
             if testCase.SimulinkAvailable
-                testCase.Engine = claudecode.SimulinkLayoutEngine(testCase.TestModelName);
+                testCase.Engine = derivux.SimulinkLayoutEngine(testCase.TestModelName);
             end
         end
     end
@@ -52,8 +52,8 @@ classdef tSimulinkLayoutEngine < matlab.unittest.TestCase
             testCase.assumeTrue(testCase.SimulinkAvailable, ...
                 'Simulink not available');
 
-            engine = claudecode.SimulinkLayoutEngine('testModel');
-            testCase.verifyClass(engine, 'claudecode.SimulinkLayoutEngine');
+            engine = derivux.SimulinkLayoutEngine('testModel');
+            testCase.verifyClass(engine, 'derivux.SimulinkLayoutEngine');
         end
 
         function testConstructorSetsModelName(testCase)
@@ -62,7 +62,7 @@ classdef tSimulinkLayoutEngine < matlab.unittest.TestCase
             testCase.assumeTrue(testCase.SimulinkAvailable, ...
                 'Simulink not available');
 
-            engine = claudecode.SimulinkLayoutEngine('myTestModel');
+            engine = derivux.SimulinkLayoutEngine('myTestModel');
             testCase.verifyEqual(engine.ModelName, 'myTestModel');
         end
 
@@ -72,7 +72,7 @@ classdef tSimulinkLayoutEngine < matlab.unittest.TestCase
             testCase.assumeTrue(testCase.SimulinkAvailable, ...
                 'Simulink not available');
 
-            engine = claudecode.SimulinkLayoutEngine('testModel');
+            engine = derivux.SimulinkLayoutEngine('testModel');
             testCase.verifyEmpty(engine.Blocks);
             testCase.verifyEmpty(engine.Edges);
             testCase.verifyEmpty(engine.Layers);
@@ -536,7 +536,7 @@ classdef tSimulinkLayoutEngine < matlab.unittest.TestCase
             add_block('simulink/Sinks/Scope', [testCase.TestModelName, '/Sink']);
             add_line(testCase.TestModelName, 'Source/1', 'Sink/1');
 
-            bridge = claudecode.SimulinkBridge();
+            bridge = derivux.SimulinkBridge();
             bridge.setCurrentModel(testCase.TestModelName);
             result = bridge.optimizeLayout();
 
@@ -550,7 +550,7 @@ classdef tSimulinkLayoutEngine < matlab.unittest.TestCase
             testCase.assumeTrue(testCase.SimulinkAvailable, ...
                 'Simulink not available');
 
-            bridge = claudecode.SimulinkBridge();
+            bridge = derivux.SimulinkBridge();
             result = bridge.optimizeLayout();
 
             testCase.verifyFalse(result.success);

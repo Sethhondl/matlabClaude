@@ -1,8 +1,8 @@
-classdef tClaudeCodeApp < matlab.unittest.TestCase
-    %TCLAUDECODEAPP Unit tests for ClaudeCodeApp
+classdef tDerivuxApp < matlab.unittest.TestCase
+    %TCLAUDECODEAPP Unit tests for DerivuxApp
     %
     %   Run tests with:
-    %       results = runtests('tClaudeCodeApp');
+    %       results = runtests('tDerivuxApp');
     %
     %   Note: These tests create UI components and require a display.
 
@@ -23,15 +23,15 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
         function testConstructor(testCase)
             %TESTCONSTRUCTOR Verify constructor creates valid object
 
-            testCase.App = claudecode.ClaudeCodeApp();
+            testCase.App = derivux.DerivuxApp();
 
-            testCase.verifyClass(testCase.App, 'claudecode.ClaudeCodeApp');
+            testCase.verifyClass(testCase.App, 'derivux.DerivuxApp');
         end
 
         function testSettingsLoaded(testCase)
             %TESTSETTINGSLOADED Verify settings property exists
 
-            testCase.App = claudecode.ClaudeCodeApp();
+            testCase.App = derivux.DerivuxApp();
 
             testCase.verifyTrue(isstruct(testCase.App.Settings));
         end
@@ -40,8 +40,8 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
         function testGetInstance(testCase)
             %TESTGETINSTANCE Verify singleton pattern
 
-            app1 = claudecode.ClaudeCodeApp.getInstance();
-            app2 = claudecode.ClaudeCodeApp.getInstance();
+            app1 = derivux.DerivuxApp.getInstance();
+            app2 = derivux.DerivuxApp.getInstance();
 
             testCase.verifyEqual(app1, app2);
 
@@ -52,7 +52,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
         function testCloseMethod(testCase)
             %TESTCLOSEMETHOD Verify close doesn't error
 
-            testCase.App = claudecode.ClaudeCodeApp();
+            testCase.App = derivux.DerivuxApp();
 
             try
                 testCase.App.close();
@@ -64,7 +64,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
         function testShowMethod(testCase)
             %TESTSHOWMETHOD Verify show doesn't error
 
-            testCase.App = claudecode.ClaudeCodeApp();
+            testCase.App = derivux.DerivuxApp();
 
             try
                 testCase.App.show();
@@ -77,7 +77,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
         function testHideMethod(testCase)
             %TESTHIDEMETHOD Verify hide doesn't error
 
-            testCase.App = claudecode.ClaudeCodeApp();
+            testCase.App = derivux.DerivuxApp();
 
             try
                 testCase.App.hide();
@@ -91,8 +91,8 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTLAUNCHFUNCTION Verify launch convenience function
 
             try
-                app = claudecode.launch();
-                testCase.verifyClass(app, 'claudecode.ClaudeCodeApp');
+                app = derivux.launch();
+                testCase.verifyClass(app, 'derivux.DerivuxApp');
                 app.close();
             catch ME
                 % May fail if Claude CLI not available - that's OK
@@ -107,7 +107,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTDOCKMETHOD Verify dock method exists and callable
 
             try
-                testCase.App = claudecode.ClaudeCodeApp();
+                testCase.App = derivux.DerivuxApp();
                 testCase.App.dock();
                 testCase.verifyTrue(testCase.App.isDocked());
             catch ME
@@ -123,7 +123,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTUNDOCKMETHOD Verify undock method exists and callable
 
             try
-                testCase.App = claudecode.ClaudeCodeApp();
+                testCase.App = derivux.DerivuxApp();
                 testCase.App.undock();
                 testCase.verifyFalse(testCase.App.isDocked());
             catch ME
@@ -139,7 +139,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTISDOCKED Verify isDocked returns boolean
 
             try
-                testCase.App = claudecode.ClaudeCodeApp();
+                testCase.App = derivux.DerivuxApp();
                 result = testCase.App.isDocked();
                 testCase.verifyClass(result, 'logical');
             catch ME
@@ -155,7 +155,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTDOCKUNDOCKTOGGLE Verify dock/undock toggle works
 
             try
-                testCase.App = claudecode.ClaudeCodeApp();
+                testCase.App = derivux.DerivuxApp();
 
                 % Toggle to undocked
                 testCase.App.undock();
@@ -178,7 +178,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTSETTINGSHASTHEME Verify Settings has theme field
 
             try
-                testCase.App = claudecode.ClaudeCodeApp();
+                testCase.App = derivux.DerivuxApp();
                 testCase.verifyTrue(isfield(testCase.App.Settings, 'theme') || ...
                     isprop(testCase.App.Settings, 'theme'));
             catch ME
@@ -194,7 +194,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTSETTINGSHASDOCKWINDOW Verify Settings has dockWindow field
 
             try
-                testCase.App = claudecode.ClaudeCodeApp();
+                testCase.App = derivux.DerivuxApp();
                 testCase.verifyTrue(isfield(testCase.App.Settings, 'dockWindow'));
             catch ME
                 if contains(ME.message, 'Python') || contains(ME.message, 'Claude')
@@ -209,7 +209,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTSETTINGSHASAUTOINCLUDEWORKSPACE Verify field exists
 
             try
-                testCase.App = claudecode.ClaudeCodeApp();
+                testCase.App = derivux.DerivuxApp();
                 testCase.verifyTrue(isfield(testCase.App.Settings, 'autoIncludeWorkspace'));
             catch ME
                 if contains(ME.message, 'Python') || contains(ME.message, 'Claude')
@@ -224,7 +224,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTSETTINGSHASAUTOINCLUDESIMULINK Verify field exists
 
             try
-                testCase.App = claudecode.ClaudeCodeApp();
+                testCase.App = derivux.DerivuxApp();
                 testCase.verifyTrue(isfield(testCase.App.Settings, 'autoIncludeSimulink'));
             catch ME
                 if contains(ME.message, 'Python') || contains(ME.message, 'Claude')
@@ -240,10 +240,10 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTDOUBLELAUNCH Verify double launch brings to front
 
             try
-                app1 = claudecode.ClaudeCodeApp.getInstance();
+                app1 = derivux.DerivuxApp.getInstance();
                 app1.launch();
 
-                app2 = claudecode.ClaudeCodeApp.getInstance();
+                app2 = derivux.DerivuxApp.getInstance();
                 app2.launch();
 
                 % Should be same instance
@@ -263,7 +263,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTLAUNCHAFTERCLOSE Verify can launch after close
 
             try
-                app1 = claudecode.ClaudeCodeApp.getInstance();
+                app1 = derivux.DerivuxApp.getInstance();
                 app1.launch();
                 app1.close();
 
@@ -284,7 +284,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTCLOSEMULTIPLETIMES Verify multiple closes don't error
 
             try
-                testCase.App = claudecode.ClaudeCodeApp();
+                testCase.App = derivux.DerivuxApp();
 
                 testCase.App.close();
                 testCase.App.close();
@@ -305,7 +305,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTSHOWHIDECYCLE Verify show/hide cycle works
 
             try
-                testCase.App = claudecode.ClaudeCodeApp();
+                testCase.App = derivux.DerivuxApp();
 
                 testCase.App.show();
                 testCase.App.hide();
@@ -326,7 +326,7 @@ classdef tClaudeCodeApp < matlab.unittest.TestCase
             %TESTGETPYTHONBRIDGE Verify getPythonBridge method
 
             try
-                testCase.App = claudecode.ClaudeCodeApp();
+                testCase.App = derivux.DerivuxApp();
                 bridge = testCase.App.getPythonBridge();
 
                 % Should return the Python bridge object

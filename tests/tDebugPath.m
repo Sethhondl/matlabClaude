@@ -28,7 +28,7 @@ classdef tDebugPath < matlab.unittest.TestCase
             %TESTRUNSWITHOUTRERROR Verify function runs without throwing
 
             try
-                claudecode.debugPath();
+                derivux.debugPath();
             catch ME
                 testCase.verifyFail(['debugPath should not error: ', ME.message]);
             end
@@ -37,7 +37,7 @@ classdef tDebugPath < matlab.unittest.TestCase
         function testReturnsNothing(testCase)
             %TESTRETURNSNOTHING Verify function has no output
 
-            nOut = nargout('claudecode.debugPath');
+            nOut = nargout('derivux.debugPath');
             testCase.verifyEqual(nOut, 0, ...
                 'debugPath should be a void function with no outputs');
         end
@@ -45,7 +45,7 @@ classdef tDebugPath < matlab.unittest.TestCase
         function testFunctionExists(testCase)
             %TESTFUNCTIONEXISTS Verify function is accessible
 
-            testCase.verifyTrue(exist('claudecode.debugPath', 'file') > 0, ...
+            testCase.verifyTrue(exist('derivux.debugPath', 'file') > 0, ...
                 'debugPath should exist in claudecode package');
         end
 
@@ -53,7 +53,7 @@ classdef tDebugPath < matlab.unittest.TestCase
         function testOutputContainsHeader(testCase)
             %TESTOUTPUTCONTAINSHEADER Verify output has expected header
 
-            output = evalc('claudecode.debugPath()');
+            output = evalc('derivux.debugPath()');
 
             testCase.verifySubstring(output, '=== Claude CLI Path Debugging ===', ...
                 'Output should contain header');
@@ -62,7 +62,7 @@ classdef tDebugPath < matlab.unittest.TestCase
         function testOutputContainsHomeInfo(testCase)
             %TESTOUTPUTCONTAINSHOMEINFO Verify output shows HOME variable
 
-            output = evalc('claudecode.debugPath()');
+            output = evalc('derivux.debugPath()');
 
             testCase.verifySubstring(output, 'HOME', ...
                 'Output should reference HOME variable');
@@ -71,7 +71,7 @@ classdef tDebugPath < matlab.unittest.TestCase
         function testOutputContainsEndMarker(testCase)
             %TESTOUTPUTCONTAINSENDMARKER Verify output has end marker
 
-            output = evalc('claudecode.debugPath()');
+            output = evalc('derivux.debugPath()');
 
             testCase.verifySubstring(output, '=== End Debug ===', ...
                 'Output should contain end marker');
@@ -80,7 +80,7 @@ classdef tDebugPath < matlab.unittest.TestCase
         function testOutputHasNumberedSteps(testCase)
             %TESTOUTPUTHASNUMBEREDSTEPS Verify output has numbered steps
 
-            output = evalc('claudecode.debugPath()');
+            output = evalc('derivux.debugPath()');
 
             testCase.verifySubstring(output, '1.', ...
                 'Output should have numbered steps');
@@ -94,7 +94,7 @@ classdef tDebugPath < matlab.unittest.TestCase
             setenv('HOME', '');
 
             try
-                output = evalc('claudecode.debugPath()');
+                output = evalc('derivux.debugPath()');
                 testCase.verifySubstring(output, 'ERROR', ...
                     'Should report error when HOME is empty');
             catch ME
@@ -108,7 +108,7 @@ classdef tDebugPath < matlab.unittest.TestCase
             %TESTHANDLESNONEXISTENTNVMDIR Verify handling when NVM dir missing
 
             % This test just verifies no error is thrown
-            output = evalc('claudecode.debugPath()');
+            output = evalc('derivux.debugPath()');
 
             % Should complete without error
             testCase.verifySubstring(output, '=== End Debug ===', ...
@@ -119,8 +119,8 @@ classdef tDebugPath < matlab.unittest.TestCase
         function testMultipleCallsConsistent(testCase)
             %TESTMULTIPLECALLSCONSISTENT Verify multiple calls give same output
 
-            output1 = evalc('claudecode.debugPath()');
-            output2 = evalc('claudecode.debugPath()');
+            output1 = evalc('derivux.debugPath()');
+            output2 = evalc('derivux.debugPath()');
 
             % Outputs should be identical (no side effects)
             testCase.verifyEqual(output1, output2, ...

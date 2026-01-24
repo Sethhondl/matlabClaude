@@ -37,8 +37,8 @@ classdef tLogger < matlab.unittest.TestCase
     methods (TestMethodSetup)
         function setupTest(testCase)
             % Reset the logger singleton for each test
-            claudecode.logging.Logger.resetInstance();
-            testCase.Logger = claudecode.logging.Logger.getInstance();
+            derivux.logging.Logger.resetInstance();
+            testCase.Logger = derivux.logging.Logger.getInstance();
 
             % Configure to use test directory
             config = testCase.Logger.getConfig();
@@ -63,24 +63,24 @@ classdef tLogger < matlab.unittest.TestCase
     methods (Test)
         function testLogLevelValues(testCase)
             % Verify log level numeric values
-            testCase.verifyEqual(uint8(claudecode.logging.LogLevel.TRACE), uint8(5));
-            testCase.verifyEqual(uint8(claudecode.logging.LogLevel.DEBUG), uint8(10));
-            testCase.verifyEqual(uint8(claudecode.logging.LogLevel.INFO), uint8(20));
-            testCase.verifyEqual(uint8(claudecode.logging.LogLevel.WARN), uint8(30));
-            testCase.verifyEqual(uint8(claudecode.logging.LogLevel.ERROR), uint8(40));
+            testCase.verifyEqual(uint8(derivux.logging.LogLevel.TRACE), uint8(5));
+            testCase.verifyEqual(uint8(derivux.logging.LogLevel.DEBUG), uint8(10));
+            testCase.verifyEqual(uint8(derivux.logging.LogLevel.INFO), uint8(20));
+            testCase.verifyEqual(uint8(derivux.logging.LogLevel.WARN), uint8(30));
+            testCase.verifyEqual(uint8(derivux.logging.LogLevel.ERROR), uint8(40));
         end
 
         function testLogLevelFromString(testCase, LogLevelStr)
             % Test parsing log levels from strings
-            level = claudecode.logging.LogLevel.fromString(LogLevelStr);
-            testCase.verifyClass(level, 'claudecode.logging.LogLevel');
+            level = derivux.logging.LogLevel.fromString(LogLevelStr);
+            testCase.verifyClass(level, 'derivux.logging.LogLevel');
         end
 
         function testLogLevelFromStringCaseInsensitive(testCase)
             % Test case-insensitive parsing
-            level1 = claudecode.logging.LogLevel.fromString('info');
-            level2 = claudecode.logging.LogLevel.fromString('INFO');
-            level3 = claudecode.logging.LogLevel.fromString('Info');
+            level1 = derivux.logging.LogLevel.fromString('info');
+            level2 = derivux.logging.LogLevel.fromString('INFO');
+            level3 = derivux.logging.LogLevel.fromString('Info');
 
             testCase.verifyEqual(level1, level2);
             testCase.verifyEqual(level2, level3);
@@ -88,14 +88,14 @@ classdef tLogger < matlab.unittest.TestCase
 
         function testLogLevelFromStringInvalid(testCase)
             % Test invalid log level defaults to INFO
-            level = claudecode.logging.LogLevel.fromString('INVALID');
-            testCase.verifyEqual(level, claudecode.logging.LogLevel.INFO);
+            level = derivux.logging.LogLevel.fromString('INVALID');
+            testCase.verifyEqual(level, derivux.logging.LogLevel.INFO);
         end
 
         function testLogLevelIsValidLevel(testCase)
-            testCase.verifyTrue(claudecode.logging.LogLevel.isValidLevel('INFO'));
-            testCase.verifyTrue(claudecode.logging.LogLevel.isValidLevel('error'));
-            testCase.verifyFalse(claudecode.logging.LogLevel.isValidLevel('INVALID'));
+            testCase.verifyTrue(derivux.logging.LogLevel.isValidLevel('INFO'));
+            testCase.verifyTrue(derivux.logging.LogLevel.isValidLevel('error'));
+            testCase.verifyFalse(derivux.logging.LogLevel.isValidLevel('INVALID'));
         end
     end
 
@@ -103,17 +103,17 @@ classdef tLogger < matlab.unittest.TestCase
 
     methods (Test)
         function testLogConfigDefaults(testCase)
-            config = claudecode.logging.LogConfig();
+            config = derivux.logging.LogConfig();
 
             testCase.verifyTrue(config.Enabled);
-            testCase.verifyEqual(config.Level, claudecode.logging.LogLevel.INFO);
+            testCase.verifyEqual(config.Level, derivux.logging.LogLevel.INFO);
             testCase.verifyTrue(config.LogSensitiveData);
             testCase.verifyEqual(config.MaxFileSize, 10485760);
             testCase.verifyEqual(config.MaxFiles, 10);
         end
 
         function testLogConfigSessionIdGenerated(testCase)
-            config = claudecode.logging.LogConfig();
+            config = derivux.logging.LogConfig();
 
             % Session ID should be non-empty and match expected format
             testCase.verifyNotEmpty(config.SessionId);
@@ -121,11 +121,11 @@ classdef tLogger < matlab.unittest.TestCase
         end
 
         function testLogConfigReset(testCase)
-            config = claudecode.logging.LogConfig();
+            config = derivux.logging.LogConfig();
 
             % Modify settings
             config.Enabled = false;
-            config.Level = claudecode.logging.LogLevel.ERROR;
+            config.Level = derivux.logging.LogLevel.ERROR;
             config.MaxFileSize = 1000;
 
             % Reset
@@ -133,7 +133,7 @@ classdef tLogger < matlab.unittest.TestCase
 
             % Verify defaults restored
             testCase.verifyTrue(config.Enabled);
-            testCase.verifyEqual(config.Level, claudecode.logging.LogLevel.INFO);
+            testCase.verifyEqual(config.Level, derivux.logging.LogLevel.INFO);
             testCase.verifyEqual(config.MaxFileSize, 10485760);
         end
     end
@@ -143,7 +143,7 @@ classdef tLogger < matlab.unittest.TestCase
     methods (Test)
         function testLogFormatterToJson(testCase)
             data = struct('key', 'value', 'number', 42);
-            jsonStr = claudecode.logging.LogFormatter.toJson(data);
+            jsonStr = derivux.logging.LogFormatter.toJson(data);
 
             testCase.verifyTrue(contains(jsonStr, '"key"'));
             testCase.verifyTrue(contains(jsonStr, '"value"'));
@@ -151,7 +151,7 @@ classdef tLogger < matlab.unittest.TestCase
         end
 
         function testLogFormatterIsoTimestamp(testCase)
-            ts = claudecode.logging.LogFormatter.isoTimestamp();
+            ts = derivux.logging.LogFormatter.isoTimestamp();
 
             % Should match ISO 8601 format with microseconds
             testCase.verifyTrue(contains(ts, 'T'));
@@ -160,8 +160,8 @@ classdef tLogger < matlab.unittest.TestCase
         end
 
         function testLogFormatterCreateEntry(testCase)
-            entry = claudecode.logging.LogFormatter.createEntry(...
-                claudecode.logging.LogLevel.INFO, ...
+            entry = derivux.logging.LogFormatter.createEntry(...
+                derivux.logging.LogLevel.INFO, ...
                 'TestComponent', ...
                 'test_event', ...
                 struct('data_key', 'data_value'), ...
@@ -188,7 +188,7 @@ classdef tLogger < matlab.unittest.TestCase
                 'inf_val', Inf, ...
                 'bool', true);
 
-            sanitized = claudecode.logging.LogFormatter.sanitizeData(data);
+            sanitized = derivux.logging.LogFormatter.sanitizeData(data);
 
             testCase.verifyEqual(sanitized.str, "hello");
             testCase.verifyEqual(sanitized.num, 42);
@@ -199,7 +199,7 @@ classdef tLogger < matlab.unittest.TestCase
 
         function testLogFormatterTruncateString(testCase)
             longStr = repmat('a', 1, 20000);
-            truncated = claudecode.logging.LogFormatter.truncateString(longStr, 100);
+            truncated = derivux.logging.LogFormatter.truncateString(longStr, 100);
 
             testCase.verifyLessThanOrEqual(strlength(truncated), 100);
             testCase.verifyTrue(endsWith(truncated, '...[truncated]'));
@@ -210,15 +210,15 @@ classdef tLogger < matlab.unittest.TestCase
 
     methods (Test)
         function testLoggerIsSingleton(testCase)
-            logger1 = claudecode.logging.Logger.getInstance();
-            logger2 = claudecode.logging.Logger.getInstance();
+            logger1 = derivux.logging.Logger.getInstance();
+            logger2 = derivux.logging.Logger.getInstance();
 
             testCase.verifySameHandle(logger1, logger2);
         end
 
         function testLoggerConfiguration(testCase)
             testCase.Logger.setLevel('DEBUG');
-            testCase.verifyEqual(testCase.Logger.getLevel(), claudecode.logging.LogLevel.DEBUG);
+            testCase.verifyEqual(testCase.Logger.getLevel(), derivux.logging.LogLevel.DEBUG);
 
             testCase.Logger.disable();
             testCase.verifyFalse(testCase.Logger.isEnabled());
@@ -353,7 +353,7 @@ classdef tLogger < matlab.unittest.TestCase
             sessionId = testCase.Logger.getSessionId();
 
             % Log several events with the same session
-            testCase.Logger.info('ClaudeCodeApp', 'app_initialized');
+            testCase.Logger.info('DerivuxApp', 'app_initialized');
             testCase.Logger.info('ChatUIController', 'message_received');
             testCase.Logger.info('CodeExecutor', 'execution_started');
 

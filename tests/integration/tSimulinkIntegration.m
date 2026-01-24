@@ -20,7 +20,7 @@ classdef tSimulinkIntegration < matlab.unittest.TestCase
 
     methods (TestMethodSetup)
         function createBridge(testCase)
-            testCase.Bridge = claudecode.SimulinkBridge();
+            testCase.Bridge = derivux.SimulinkBridge();
         end
     end
 
@@ -251,7 +251,7 @@ classdef tSimulinkIntegration < matlab.unittest.TestCase
             testCase.Bridge.setCurrentModel(testCase.TestModelName);
             simulinkContext = testCase.Bridge.buildSimulinkContext();
 
-            provider = claudecode.WorkspaceContextProvider();
+            provider = derivux.WorkspaceContextProvider();
             workspaceContext = provider.getWorkspaceContext();
 
             % Verify both contexts are valid
