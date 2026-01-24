@@ -1,45 +1,45 @@
-% Claude Code for MATLAB
+% Derivux for MATLAB
 % Version 1.0.0 (R2025b)
 %
-% Integrates Claude Code AI assistant into MATLAB and Simulink for
+% Integrates Claude AI assistant into MATLAB and Simulink for
 % mechanical engineers and developers.
 %
 % GETTING STARTED
-%   claudecode.launch     - Open Claude Code assistant panel
+%   derivux.launch     - Open Derivux assistant panel
 %
 % MAIN CLASSES
-%   claudecode.ClaudeCodeApp           - Main application class
-%   claudecode.ChatUIController        - Chat interface controller
-%   claudecode.ClaudeProcessManager    - Claude CLI communication
-%   claudecode.CodeExecutor            - Safe code execution
-%   claudecode.SimulinkBridge          - Simulink model integration
-%   claudecode.WorkspaceContextProvider - Workspace context extraction
+%   derivux.DerivuxApp             - Main application class
+%   derivux.ChatUIController       - Chat interface controller
+%   derivux.ClaudeProcessManager   - Claude CLI communication
+%   derivux.CodeExecutor           - Safe code execution
+%   derivux.SimulinkBridge         - Simulink model integration
+%   derivux.WorkspaceContextProvider - Workspace context extraction
 %
 % CONFIGURATION
-%   claudecode.config.Settings         - Application settings
-%   claudecode.config.ExecutionPolicy  - Code execution policy
+%   derivux.config.Settings         - Application settings
+%   derivux.config.ExecutionPolicy  - Code execution policy
 %
 % FEATURES
 %   - Chat interface with Claude in a side panel
 %   - Execute MATLAB code from Claude's responses
 %   - Automatic workspace context inclusion
 %   - Simulink model introspection and modification
-%   - GitHub integration via Claude Code CLI
+%   - GitHub integration via Claude CLI
 %
 % REQUIREMENTS
 %   - MATLAB R2025b or later
-%   - Claude Code CLI installed and in PATH
+%   - Claude CLI installed and in PATH
 %     Install from: https://claude.ai/code
 %
 % EXAMPLES
 %   % Launch the assistant
-%   claudecode.launch()
+%   derivux.launch()
 %
 %   % Programmatic access
-%   app = claudecode.ClaudeCodeApp();
+%   app = derivux.DerivuxApp();
 %   app.launch();
 %
-% See also: claudecode.launch, claudecode.ClaudeCodeApp
+% See also: derivux.launch, derivux.DerivuxApp
 
 % Copyright 2025
 % License: MIT

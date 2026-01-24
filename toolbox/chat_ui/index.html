@@ -3,14 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Claude Code Chat</title>
+    <title>Derivux</title>
     <link rel="stylesheet" href="css/styles.css">
     <link rel="stylesheet" href="css/code-blocks.css">
 </head>
 <body>
+    <!-- Bypass Mode Warning Banner (hidden by default) -->
+    <div id="bypass-warning" class="bypass-warning-banner" style="display: none;">
+        ⚠️ BYPASS MODE ACTIVE - All safety restrictions disabled
+    </div>
+
     <div id="app">
         <div id="header">
-            <h1>Claude Code</h1>
+            <h1>Derivux</h1>
             <div id="header-right">
                 <div id="status-bar">
                     <span id="sb-model" class="sb-segment sb-model">Sonnet 4.5</span>
@@ -22,6 +27,11 @@
                     <span id="sb-diff" class="sb-segment sb-diff">
                         <span class="sb-additions">+0</span><span class="sb-deletions">-0</span>
                     </span>
+                    <span class="sb-divider">|</span>
+                    <span id="sb-auth" class="sb-segment sb-auth">Sub</span>
+                    <span class="sb-divider">|</span>
+                    <span id="sb-exec-mode" class="sb-segment sb-exec-mode sb-exec-prompt"
+                          title="Click to cycle execution mode">Normal</span>
                     <span class="sb-divider">|</span>
                     <span id="sb-tokens" class="sb-segment sb-tokens">0 tokens</span>
                     <span class="sb-divider">|</span>
@@ -45,6 +55,14 @@
             </div>
         </div>
 
+        <!-- Tab Bar for Multi-Session Support -->
+        <div id="tab-bar">
+            <div id="tab-container">
+                <!-- Tabs dynamically added by TabManager -->
+            </div>
+            <button id="new-tab-btn" title="New chat session">+</button>
+        </div>
+
         <div id="message-history"></div>
 
         <div id="input-area">
@@ -65,60 +83,145 @@
 
     <!-- Settings Modal -->
     <div id="settings-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-container">
+        <div class="modal-container modal-container-wide">
             <div class="modal-header">
                 <h2>Settings</h2>
                 <button id="modal-close-btn" class="modal-close-btn" title="Close">×</button>
             </div>
+            <!-- Tab Navigation -->
+            <div class="settings-tabs">
+                <button class="settings-tab active" data-tab="general">General</button>
+                <button class="settings-tab" data-tab="authentication">Authentication</button>
+            </div>
             <div class="modal-body">
-                <!-- Model Selection -->
-                <div class="settings-group">
-                    <label for="model-select">Model</label>
-                    <select id="model-select" class="settings-select">
-                        <option value="claude-sonnet-4-5-20250514">Claude Sonnet 4.5 (Recommended)</option>
-                        <option value="claude-opus-4-5-20250514">Claude Opus 4.5</option>
-                        <option value="claude-haiku-4-5-20250514">Claude Haiku 4.5</option>
-                    </select>
+                <!-- General Tab Content -->
+                <div id="tab-general" class="settings-tab-content active">
+                    <!-- Model Selection -->
+                    <div class="settings-group">
+                        <label for="model-select">Model</label>
+                        <select id="model-select" class="settings-select">
+                            <option value="claude-sonnet-4-5-20250514">Claude Sonnet 4.5 (Recommended)</option>
+                            <option value="claude-opus-4-5-20250514">Claude Opus 4.5</option>
+                            <option value="claude-haiku-4-5-20250514">Claude Haiku 4.5</option>
+                        </select>
+                    </div>
+                    <!-- Theme -->
+                    <div class="settings-group">
+                        <label for="theme-select">Theme</label>
+                        <select id="theme-select" class="settings-select">
+                            <option value="dark">Dark</option>
+                            <option value="light">Light</option>
+                        </select>
+                    </div>
+                    <!-- Safety Settings -->
+                    <div class="settings-section-header">Safety</div>
+                    <div class="settings-group settings-checkbox-group">
+                        <label><input type="checkbox" id="allow-bypass-cycling-checkbox"> Allow bypass mode cycling (dangerous)</label>
+                        <span class="settings-hint">When enabled, you can cycle to bypass mode using the status bar or backtick key</span>
+                    </div>
+                    <!-- Display Settings -->
+                    <div class="settings-section-header">Display</div>
+                    <div class="settings-group settings-checkbox-group">
+                        <label><input type="checkbox" id="headless-mode-checkbox" checked> Headless mode (suppress pop-up windows)</label>
+                    </div>
+                    <!-- Timeout Settings -->
+                    <div class="settings-section-header">Timeouts</div>
+                    <div class="settings-group">
+                        <label for="max-polling-duration">Max Request Duration (seconds)</label>
+                        <input type="number" id="max-polling-duration" class="settings-input" min="60" max="3600" step="60" value="600">
+                        <span class="settings-hint">Maximum time for a single request (60-3600 sec)</span>
+                    </div>
+                    <!-- Logging Settings -->
+                    <div class="settings-section-header">Logging</div>
+                    <div class="settings-group settings-checkbox-group">
+                        <label><input type="checkbox" id="logging-enabled-checkbox"> Enable logging</label>
+                    </div>
+                    <div class="settings-group">
+                        <label for="log-level-select">Log Level</label>
+                        <select id="log-level-select" class="settings-select">
+                            <option value="ERROR">Error only</option>
+                            <option value="WARN">Warnings</option>
+                            <option value="INFO">Info (Recommended)</option>
+                            <option value="DEBUG">Debug</option>
+                            <option value="TRACE">Trace (Verbose)</option>
+                        </select>
+                    </div>
+                    <div class="settings-group settings-checkbox-group">
+                        <label><input type="checkbox" id="log-sensitive-checkbox"> Log message content</label>
+                    </div>
                 </div>
-                <!-- Theme -->
-                <div class="settings-group">
-                    <label for="theme-select">Theme</label>
-                    <select id="theme-select" class="settings-select">
-                        <option value="dark">Dark</option>
-                        <option value="light">Light</option>
-                    </select>
-                </div>
-                <!-- Code Execution Mode -->
-                <div class="settings-group">
-                    <label for="execution-mode-select">Code Execution</label>
-                    <select id="execution-mode-select" class="settings-select">
-                        <option value="prompt">Prompt before running</option>
-                        <option value="auto">Auto-run</option>
-                        <option value="disabled">Disabled</option>
-                    </select>
-                </div>
-                <!-- Display Settings -->
-                <div class="settings-section-header">Display</div>
-                <div class="settings-group settings-checkbox-group">
-                    <label><input type="checkbox" id="headless-mode-checkbox" checked> Headless mode (suppress pop-up windows)</label>
-                </div>
-                <!-- Logging Settings -->
-                <div class="settings-section-header">Logging</div>
-                <div class="settings-group settings-checkbox-group">
-                    <label><input type="checkbox" id="logging-enabled-checkbox"> Enable logging</label>
-                </div>
-                <div class="settings-group">
-                    <label for="log-level-select">Log Level</label>
-                    <select id="log-level-select" class="settings-select">
-                        <option value="ERROR">Error only</option>
-                        <option value="WARN">Warnings</option>
-                        <option value="INFO">Info (Recommended)</option>
-                        <option value="DEBUG">Debug</option>
-                        <option value="TRACE">Trace (Verbose)</option>
-                    </select>
-                </div>
-                <div class="settings-group settings-checkbox-group">
-                    <label><input type="checkbox" id="log-sensitive-checkbox"> Log message content</label>
+
+                <!-- Authentication Tab Content -->
+                <div id="tab-authentication" class="settings-tab-content">
+                    <div class="auth-intro">
+                        Choose how you want to connect to Claude AI.
+                    </div>
+
+                    <!-- Authentication Method Selection -->
+                    <div class="auth-method-options">
+                        <!-- API Key Option (Recommended - no dependencies) -->
+                        <label class="auth-method-option">
+                            <input type="radio" name="auth-method" value="api_key" checked>
+                            <div class="auth-method-content">
+                                <div class="auth-method-title">Claude API</div>
+                                <div class="auth-method-desc">
+                                    Recommended - Simple setup with an API key.
+                                    Get your key from console.anthropic.com
+                                </div>
+                            </div>
+                        </label>
+
+                        <!-- Subscription Option -->
+                        <label class="auth-method-option">
+                            <input type="radio" name="auth-method" value="subscription">
+                            <div class="auth-method-content">
+                                <div class="auth-method-title">Claude Subscription</div>
+                                <div class="auth-method-desc">
+                                    Use your Claude Pro/Max subscription. Requires Node.js.
+                                    Login via browser - your account stays secure.
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- Subscription Section -->
+                    <div id="auth-subscription-section" class="auth-section" style="display: none;">
+                        <div class="auth-section-header">Subscription Status</div>
+                        <div class="auth-status" id="subscription-status">
+                            <span class="auth-status-icon" id="subscription-status-icon">?</span>
+                            <span class="auth-status-text" id="subscription-status-text">Checking status...</span>
+                        </div>
+                        <div class="auth-actions">
+                            <button id="cli-login-btn" class="auth-btn auth-btn-primary">Login with Claude</button>
+                            <button id="check-status-btn" class="auth-btn auth-btn-secondary">Check Status</button>
+                        </div>
+                    </div>
+
+                    <!-- API Key Section -->
+                    <div id="auth-apikey-section" class="auth-section">
+                        <div class="auth-section-header">API Key</div>
+                        <div class="auth-input-group">
+                            <input type="password" id="api-key-input" class="settings-input auth-input"
+                                   placeholder="sk-ant-api03-..." autocomplete="off">
+                            <button id="toggle-key-visibility" class="auth-btn-icon" title="Show/hide key">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="auth-status" id="apikey-status">
+                            <span class="auth-status-icon" id="apikey-status-icon">-</span>
+                            <span class="auth-status-text" id="apikey-status-text">No API key configured</span>
+                        </div>
+                        <div class="auth-actions">
+                            <button id="validate-key-btn" class="auth-btn auth-btn-primary">Validate</button>
+                            <button id="clear-key-btn" class="auth-btn auth-btn-secondary">Clear</button>
+                        </div>
+                        <div class="auth-hint">
+                            Get your API key from <a href="https://console.anthropic.com/" target="_blank">console.anthropic.com</a>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

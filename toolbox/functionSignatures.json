@@ -1,28 +1,28 @@
 {
     "_schemaVersion": "1.0.0",
-    "claudecode.launch": {
+    "derivux.launch": {
         "inputs": [],
         "outputs": [
             {
                 "name": "app",
-                "type": "claudecode.ClaudeCodeApp"
+                "type": "derivux.DerivuxApp"
             }
         ],
-        "description": "Launch Claude Code assistant panel"
+        "description": "Launch Derivux assistant panel"
     },
-    "claudecode.ClaudeCodeApp": {
+    "derivux.DerivuxApp": {
         "inputs": [],
-        "description": "Create Claude Code application instance"
+        "description": "Create Derivux application instance"
     },
-    "claudecode.ClaudeCodeApp.launch": {
+    "derivux.DerivuxApp.launch": {
         "inputs": [],
-        "description": "Open the Claude Code window"
+        "description": "Open the Derivux window"
     },
-    "claudecode.ClaudeCodeApp.close": {
+    "derivux.DerivuxApp.close": {
         "inputs": [],
-        "description": "Close the Claude Code window"
+        "description": "Close the Derivux window"
     },
-    "claudecode.ClaudeProcessManager.sendMessage": {
+    "derivux.ClaudeProcessManager.sendMessage": {
         "inputs": [
             {
                 "name": "prompt",
@@ -47,7 +47,7 @@
         ],
         "description": "Send a message to Claude and get response"
     },
-    "claudecode.CodeExecutor.execute": {
+    "derivux.CodeExecutor.execute": {
         "inputs": [
             {
                 "name": "code",
@@ -67,7 +67,7 @@
         ],
         "description": "Execute MATLAB code safely"
     },
-    "claudecode.SimulinkBridge.setCurrentModel": {
+    "derivux.SimulinkBridge.setCurrentModel": {
         "inputs": [
             {
                 "name": "modelName",
@@ -83,7 +83,7 @@
         ],
         "description": "Set the current Simulink model"
     },
-    "claudecode.SimulinkBridge.addBlockFromLibrary": {
+    "derivux.SimulinkBridge.addBlockFromLibrary": {
         "inputs": [
             {
                 "name": "libraryPath",
@@ -109,14 +109,14 @@
         ],
         "description": "Add a block from Simulink library"
     },
-    "claudecode.config.Settings.load": {
+    "derivux.config.Settings.load": {
         "inputs": [],
         "outputs": [
             {
                 "name": "settings",
-                "type": "claudecode.config.Settings"
+                "type": "derivux.config.Settings"
             }
         ],
-        "description": "Load Claude Code settings"
+        "description": "Load Derivux settings"
     }
 }

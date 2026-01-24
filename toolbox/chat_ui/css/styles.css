@@ -177,6 +177,193 @@ body {
     50% { opacity: 0.5; }
 }
 
+/* ===========================
+   Tab Bar Styles (Multi-Session)
+   =========================== */
+
+#tab-bar {
+    display: flex;
+    align-items: center;
+    background-color: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding: 0 8px;
+    min-height: 36px;
+    overflow: hidden;
+}
+
+#tab-container {
+    display: flex;
+    flex: 1;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 2px;
+    padding: 4px 0;
+    scrollbar-width: none;  /* Firefox */
+    -ms-overflow-style: none;  /* IE/Edge */
+}
+
+#tab-container::-webkit-scrollbar {
+    display: none;  /* Chrome/Safari */
+}
+
+.session-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px 6px 0 0;
+    border-bottom: none;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    min-width: 80px;
+    max-width: 180px;
+    transition: all 0.15s ease;
+    position: relative;
+    margin-bottom: -1px;
+}
+
+.session-tab:hover {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.session-tab.active {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    border-color: var(--accent-color);
+    border-bottom-color: var(--bg-primary);
+}
+
+.session-tab .tab-icon {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.session-tab .tab-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.session-tab .tab-close {
+    width: 16px;
+    height: 16px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all 0.1s ease;
+    flex-shrink: 0;
+}
+
+.session-tab:hover .tab-close,
+.session-tab.active .tab-close {
+    opacity: 0.6;
+}
+
+.session-tab .tab-close:hover {
+    opacity: 1;
+    background-color: var(--error-color);
+    color: white;
+}
+
+/* Tab Status Indicators */
+.tab-icon-ready {
+    background-color: var(--success-color);
+}
+
+.tab-icon-working {
+    background-color: var(--accent-color);
+    animation: tabPulse 1s ease-in-out infinite;
+}
+
+.tab-icon-attention {
+    background-color: #f59e0b;  /* Orange */
+    animation: tabAttention 2s ease-in-out infinite;
+}
+
+.tab-icon-unread {
+    background-color: var(--accent-color);
+    box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-color);
+}
+
+@keyframes tabPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(0.9); }
+}
+
+@keyframes tabAttention {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Unread Badge */
+.session-tab .tab-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    min-width: 14px;
+    height: 14px;
+    background-color: var(--accent-color);
+    color: white;
+    font-size: 9px;
+    font-weight: 600;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 3px;
+}
+
+.session-tab .tab-badge:empty {
+    display: none;
+}
+
+/* New Tab Button */
+#new-tab-btn {
+    width: 28px;
+    height: 28px;
+    background-color: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 18px;
+    font-weight: 400;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+    margin-left: 6px;
+}
+
+#new-tab-btn:hover {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+#new-tab-btn:active {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+    color: white;
+}
+
 /* Message History */
 #message-history {
     flex: 1;
@@ -694,6 +881,34 @@ body {
     cursor: pointer;
 }
 
+.settings-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 13px;
+    transition: border-color 0.15s ease;
+}
+
+.settings-input:hover {
+    border-color: var(--text-secondary);
+}
+
+.settings-input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+.settings-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
 .modal-footer {
     display: flex;
     justify-content: center;
@@ -827,4 +1042,363 @@ body {
     #status-bar {
         display: none;
     }
+}
+
+/* ===========================
+   Settings Modal Tabs
+   =========================== */
+
+.modal-container-wide {
+    width: 420px;
+}
+
+.settings-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border-color);
+    padding: 0 20px;
+    background-color: var(--bg-secondary);
+}
+
+.settings-tab {
+    padding: 12px 20px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin-bottom: -1px;
+}
+
+.settings-tab:hover {
+    color: var(--text-primary);
+}
+
+.settings-tab.active {
+    color: var(--accent-color);
+    border-bottom-color: var(--accent-color);
+}
+
+.settings-tab-content {
+    display: none;
+}
+
+.settings-tab-content.active {
+    display: block;
+}
+
+/* ===========================
+   Authentication Tab Styles
+   =========================== */
+
+.auth-intro {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+/* Auth Method Radio Options */
+.auth-method-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.auth-method-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.auth-method-option:hover {
+    border-color: var(--text-secondary);
+}
+
+.auth-method-option input[type="radio"] {
+    margin-top: 2px;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent-color);
+    cursor: pointer;
+}
+
+.auth-method-option input[type="radio"]:checked + .auth-method-content {
+    color: var(--text-primary);
+}
+
+.auth-method-option:has(input:checked) {
+    border-color: var(--accent-color);
+    background-color: var(--accent-light);
+}
+
+.auth-method-content {
+    flex: 1;
+}
+
+.auth-method-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.auth-method-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+/* Auth Sections */
+.auth-section {
+    border-top: 1px solid var(--border-color);
+    padding-top: 16px;
+    margin-top: 8px;
+}
+
+.auth-section-header {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+/* Auth Status Display */
+.auth-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background-color: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-bottom: 12px;
+}
+
+.auth-status-icon {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: bold;
+    border-radius: 50%;
+}
+
+.auth-status-icon.auth-status-success {
+    color: var(--success-color);
+}
+
+.auth-status-icon.auth-status-error {
+    color: var(--error-color);
+}
+
+.auth-status-icon.auth-status-loading {
+    color: var(--accent-color);
+    animation: spin 1s linear infinite;
+}
+
+.auth-status-icon.auth-status-none {
+    color: var(--text-secondary);
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.auth-status-text {
+    font-size: 12px;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+/* Auth Input Group (API Key) */
+.auth-input-group {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.auth-input {
+    flex: 1;
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
+}
+
+.auth-btn-icon {
+    width: 36px;
+    height: 36px;
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.auth-btn-icon:hover {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+/* Auth Action Buttons */
+.auth-actions {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.auth-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.auth-btn-primary {
+    background-color: var(--accent-color);
+    border: 1px solid var(--accent-color);
+    color: white;
+}
+
+.auth-btn-primary:hover {
+    background-color: var(--accent-hover);
+    border-color: var(--accent-hover);
+}
+
+.auth-btn-secondary {
+    background-color: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+}
+
+.auth-btn-secondary:hover {
+    background-color: var(--bg-tertiary);
+    border-color: var(--text-secondary);
+}
+
+/* Auth Hint */
+.auth-hint {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.auth-hint a {
+    color: var(--accent-color);
+    text-decoration: none;
+}
+
+.auth-hint a:hover {
+    text-decoration: underline;
+}
+
+/* ===========================
+   Status Bar Auth Segment
+   =========================== */
+
+:root {
+    --sb-auth-sub: #56d4dd;    /* Cyan for subscription */
+    --sb-auth-api: #d4a656;    /* Orange for API key */
+}
+
+[data-theme="dark"] {
+    --sb-auth-sub: #56d4dd;
+    --sb-auth-api: #d4a656;
+}
+
+.sb-auth {
+    color: var(--sb-auth-sub);
+}
+
+.sb-auth.sb-auth-sub {
+    color: var(--sb-auth-sub);
+}
+
+.sb-auth.sb-auth-api {
+    color: var(--sb-auth-api);
+}
+
+/* ===========================
+   Execution Mode Indicator
+   =========================== */
+
+:root {
+    --sb-exec-plan: #61afef;    /* Blue - planning/interview mode */
+    --sb-exec-prompt: #98c379;  /* Green - safe default */
+    --sb-exec-auto: #d19a66;    /* Orange - auto-execution */
+    --sb-exec-bypass: #e06c75;  /* Red - dangerous bypass mode */
+}
+
+[data-theme="dark"] {
+    --sb-exec-plan: #61afef;
+    --sb-exec-prompt: #56d364;
+    --sb-exec-auto: #d4a656;
+    --sb-exec-bypass: #f85149;
+}
+
+.sb-exec-mode {
+    cursor: pointer;
+    user-select: none;
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.sb-exec-mode:hover {
+    opacity: 0.8;
+}
+
+.sb-exec-mode.sb-exec-plan {
+    color: var(--sb-exec-plan);
+}
+
+.sb-exec-mode.sb-exec-prompt {
+    color: var(--sb-exec-prompt);
+}
+
+.sb-exec-mode.sb-exec-auto {
+    color: var(--sb-exec-auto);
+}
+
+.sb-exec-mode.sb-exec-bypass {
+    color: var(--sb-exec-bypass);
+    font-weight: 600;
+}
+
+/* ===========================
+   Bypass Warning Banner
+   =========================== */
+
+.bypass-warning-banner {
+    background: var(--sb-exec-bypass, #e06c75);
+    color: white;
+    padding: 8px 16px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 13px;
+    animation: bypassPulse 2s ease-in-out infinite;
+}
+
+@keyframes bypassPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
 }
