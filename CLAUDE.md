@@ -2,22 +2,22 @@
 
 ## Overview
 
-**Claude Code for MATLAB** - A MATLAB toolbox integrating Claude AI into MATLAB and Simulink.
+**Derivux for MATLAB** - A MATLAB toolbox integrating Claude AI into MATLAB and Simulink.
 
 **Target users:** Mechanical engineers and MATLAB developers working on control systems and simulation.
 
 ## Quick Start
 
 ```matlab
-claudecode.launch()
+derivux.launch()
 ```
 
 ## Project Structure
 
 ```
-matlabClaude/
-├── toolbox/+claudecode/    # MATLAB classes (ClaudeCodeApp, CodeExecutor, SimulinkBridge)
-├── python/claudecode/      # Python backend (agent.py, matlab_tools.py, simulink_tools.py)
+derivux/
+├── toolbox/+derivux/       # MATLAB classes (DerivuxApp, CodeExecutor, SimulinkBridge)
+├── python/derivux/         # Python backend (agent.py, matlab_tools.py, simulink_tools.py)
 ├── scripts/                # Helper scripts (worktree.sh)
 ├── tests/                  # MATLAB unit tests
 └── logs/                   # Runtime logs
@@ -29,7 +29,7 @@ matlabClaude/
 
 - MATLAB R2025b+
 - Python 3.10+
-- Claude Code CLI (`claude --version`)
+- Claude CLI (`claude --version`)
 
 ### Running Tests
 
@@ -61,10 +61,10 @@ This project uses **git worktrees** for parallel feature development. Each featu
 
 ```bash
 # Create worktree with new branch
-git worktree add ../matlabClaude-worktrees/feature-name -b feature/name origin/main
+git worktree add ../derivux-worktrees/feature-name -b feature/name origin/main
 
 # Remove worktree after merge
-git worktree remove ../matlabClaude-worktrees/feature-name
+git worktree remove ../derivux-worktrees/feature-name
 git branch -d feature/name
 ```
 

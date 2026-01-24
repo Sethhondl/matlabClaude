@@ -1,6 +1,6 @@
-# Claude Code for MATLAB
+# Derivux for MATLAB
 
-A MATLAB toolbox that integrates Claude Code AI assistant into MATLAB and Simulink, designed for mechanical engineers and developers.
+A MATLAB toolbox that integrates Claude AI assistant into MATLAB and Simulink, designed for mechanical engineers and developers.
 
 ## Features
 
@@ -8,12 +8,12 @@ A MATLAB toolbox that integrates Claude Code AI assistant into MATLAB and Simuli
 - **Code Execution**: Run MATLAB code directly from Claude's responses
 - **Workspace Context**: Automatically include MATLAB workspace variables in prompts
 - **Simulink Integration**: Read and modify Simulink models programmatically
-- **GitHub Integration**: Leverage Claude Code's built-in git capabilities
+- **GitHub Integration**: Leverage Claude CLI's built-in git capabilities
 
 ## Requirements
 
 - MATLAB R2025b or later
-- Claude Code CLI installed and in PATH
+- Claude CLI installed and in PATH
   - Install from: https://claude.ai/code
 
 ## Installation
@@ -21,9 +21,9 @@ A MATLAB toolbox that integrates Claude Code AI assistant into MATLAB and Simuli
 1. Clone this repository or download the toolbox
 2. Add the toolbox to your MATLAB path:
    ```matlab
-   addpath('/path/to/matlabClaude/toolbox')
+   addpath('/path/to/derivux/toolbox')
    ```
-3. Verify Claude Code CLI is installed:
+3. Verify Claude CLI is installed:
    ```bash
    claude --version
    ```
@@ -31,14 +31,14 @@ A MATLAB toolbox that integrates Claude Code AI assistant into MATLAB and Simuli
 ## Quick Start
 
 ```matlab
-% Launch the Claude Code assistant
-claudecode.launch()
+% Launch the Derivux assistant
+derivux.launch()
 ```
 
 ## Usage
 
 ### Basic Chat
-1. Launch the assistant with `claudecode.launch()`
+1. Launch the assistant with `derivux.launch()`
 2. Type your question in the input box
 3. Press Ctrl+Enter or click Send
 
@@ -61,10 +61,10 @@ When a Simulink model is open:
 ## Project Structure
 
 ```
-matlabClaude/
+derivux/
 ├── toolbox/
-│   ├── +claudecode/           # Main package
-│   │   ├── ClaudeCodeApp.m    # Main entry point
+│   ├── +derivux/              # Main package
+│   │   ├── DerivuxApp.m       # Main entry point
 │   │   ├── ClaudeProcessManager.m  # CLI communication
 │   │   ├── ChatUIController.m      # UI controller
 │   │   ├── CodeExecutor.m          # Safe code execution
@@ -114,7 +114,7 @@ The CodeExecutor class validates all code before execution, blocking:
 Settings are stored in MATLAB preferences and can be modified:
 
 ```matlab
-settings = claudecode.config.Settings.load();
+settings = derivux.config.Settings.load();
 settings.theme = 'light';
 settings.executionTimeout = 60;
 settings.save();
@@ -144,7 +144,7 @@ settings.save();
           │
           ▼
 ┌─────────────────────────────────────────────────────┐
-│  Claude Code CLI: claude -p --output-format stream-json │
+│  Claude CLI: claude -p --output-format stream-json  │
 └─────────────────────────────────────────────────────┘
 ```
 
