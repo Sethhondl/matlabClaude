@@ -27,10 +27,12 @@ def _load_model_headless(engine, model: str) -> None:
         engine: MATLAB engine instance
         model: Model name to load
     """
-    engine.eval(f"load_system('{model}')", capture_output=False)
     if get_headless_mode():
-        # Prevent the model window from opening
-        engine.eval(f"set_param('{model}', 'Open', 'off')", capture_output=False)
+        # Use 'loadonly' flag to load model without opening the editor GUI
+        # This prevents the window flash that occurs with load_system + set_param
+        engine.eval(f"open_system('{model}', 'loadonly')", capture_output=False)
+    else:
+        engine.eval(f"load_system('{model}')", capture_output=False)
 
 
 @tool(

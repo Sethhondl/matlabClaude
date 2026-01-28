@@ -66,6 +66,11 @@ def _capture_figure(engine, fig_handle: int, fmt: str = "png", close_after: bool
         tmp_path = tmp.name
 
     try:
+        # Ensure figure stays invisible during capture (defense in depth)
+        # This handles edge cases where headless mode might not be fully applied
+        if get_headless_mode():
+            engine.eval(f"set({fig_handle}, 'Visible', 'off');", capture_output=False)
+
         # Use print command for better quality output
         if fmt == "png":
             # Use print with higher resolution for better quality
@@ -210,31 +215,38 @@ async def matlab_execute(args: Dict[str, Any]) -> Dict[str, Any]:
         try:
             # Execute the code
             result = engine.eval(code, capture_output=capture)
+
+            if not result:
+                result = "Code executed successfully (no output)"
+            elif format_output:
+                # Try to format matrix output nicely
+                result = _format_matrix_output(engine, result)
+
+            content = [{"type": "text", "text": result}]
+
+            # Capture any new figures WHILE STILL IN HEADLESS MODE
+            # This prevents figures from flashing visible during capture
+            figures_captured = 0
+            if capture_figures:
+                new_figs = _get_figure_handles(engine) - existing_figs
+
+                # Force all new figures invisible before capture (handles user code
+                # that explicitly set Visible='on')
+                if _headless_mode and new_figs:
+                    engine.eval("set(findall(0, 'Type', 'figure'), 'Visible', 'off');", capture_output=False)
+
+                for fig_handle in sorted(new_figs):
+                    try:
+                        image_block = _capture_figure(engine, fig_handle, close_after=True)
+                        content.append(image_block)
+                        figures_captured += 1
+                    except Exception as e:
+                        content.append({"type": "text", "text": f"Failed to capture figure {fig_handle}: {e}"})
         finally:
-            # Restore figure visibility setting
+            # Restore figure visibility setting AFTER capture is complete
             if _headless_mode:
                 engine.eval("set(0, 'DefaultFigureVisible', __claude_prev_visible);", capture_output=False)
                 engine.eval("clear __claude_prev_visible;", capture_output=False)
-
-        if not result:
-            result = "Code executed successfully (no output)"
-        elif format_output:
-            # Try to format matrix output nicely
-            result = _format_matrix_output(engine, result)
-
-        content = [{"type": "text", "text": result}]
-
-        # Capture any new figures
-        figures_captured = 0
-        if capture_figures:
-            new_figs = _get_figure_handles(engine) - existing_figs
-            for fig_handle in sorted(new_figs):
-                try:
-                    image_block = _capture_figure(engine, fig_handle, close_after=True)
-                    content.append(image_block)
-                    figures_captured += 1
-                except Exception as e:
-                    content.append({"type": "text", "text": f"Failed to capture figure {fig_handle}: {e}"})
 
         duration_ms = (time.perf_counter() - start_time) * 1000
         _logger.info_timed("matlab_tools", "execute_complete", {
@@ -366,8 +378,17 @@ async def matlab_plot(args: Dict[str, Any]) -> Dict[str, Any]:
             # Create a new figure to ensure clean state
             engine.eval("figure;", capture_output=False)
 
+            # Defense in depth: explicitly set the new figure invisible
+            # (handles edge cases where DefaultFigureVisible might not fully apply)
+            if _headless_mode:
+                engine.eval("set(gcf, 'Visible', 'off');", capture_output=False)
+
             # Execute the plotting code
             engine.eval(code, capture_output=False)
+
+            # Hide any figures that user code may have made visible before capture
+            if _headless_mode:
+                engine.eval("set(gcf, 'Visible', 'off');", capture_output=False)
 
             # Save to temporary file
             with tempfile.NamedTemporaryFile(suffix=f".{fmt}", delete=False) as tmp:
