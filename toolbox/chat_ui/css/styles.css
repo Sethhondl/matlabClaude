@@ -1402,3 +1402,47 @@ body {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.85; }
 }
+
+/* ===========================
+   Interrupt Hint & Interrupted Message
+   =========================== */
+
+/* Interrupt hint shown after first ESC press */
+.interrupt-hint {
+    position: fixed;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    z-index: 1001;
+    animation: hintFadeIn 0.15s ease;
+}
+
+@keyframes hintFadeIn {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+/* Interrupted message style */
+.system-message.interrupted {
+    text-align: center;
+    padding: 8px 16px;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    font-style: italic;
+    margin: 8px 0;
+}
