@@ -68,6 +68,25 @@ from .file_tools import FILE_TOOLS
 from .matlab_engine import get_engine, stop_engine
 
 
+PLAN_MODE_PREAMBLE = """
+## IMPORTANT: You are currently in PLANNING MODE
+
+In planning mode, your role is to:
+1. **Gather Requirements**: Ask clarifying questions to understand what the user wants
+2. **Explore the Workspace**: Use read-only tools to understand the current state
+3. **Create a Detailed Plan**: Outline the steps needed to accomplish the user's goal
+4. **DO NOT Execute Code**: You cannot execute MATLAB code or modify files in this mode
+
+Focus on understanding the problem deeply before implementation begins.
+Ask questions like:
+- What is the expected input/output format?
+- Are there any constraints or edge cases to consider?
+- What existing code or variables should be used?
+
+When you have a clear understanding, present a numbered plan of implementation steps.
+The user will switch to a different mode when ready to execute the plan.
+"""
+
 MATLAB_SYSTEM_PROMPT = """You are an expert MATLAB and Simulink assistant. You have access to tools that let you:
 
 1. **Execute MATLAB Code** (matlab_execute): Run any MATLAB code and see the output
@@ -142,7 +161,8 @@ class MatlabAgent:
         max_turns: Optional[int] = None,
         thinking_budget: Optional[int] = None,
         custom_allowed_tools: Optional[List[str]] = None,
-        model: Optional[str] = None
+        model: Optional[str] = None,
+        execution_mode: str = 'prompt'
     ):
         """Initialize the MATLAB agent.
 
@@ -153,8 +173,17 @@ class MatlabAgent:
             thinking_budget: Extended thinking token budget (None for standard)
             custom_allowed_tools: Override default tool list (None for all tools)
             model: Claude model ID (uses SDK default if None)
+            execution_mode: Code execution mode ('plan', 'prompt', 'auto', 'bypass')
         """
-        self.system_prompt = system_prompt or MATLAB_SYSTEM_PROMPT
+        self.execution_mode = execution_mode
+
+        # Build system prompt based on execution mode
+        base_prompt = system_prompt or MATLAB_SYSTEM_PROMPT
+        if execution_mode == 'plan':
+            self.system_prompt = PLAN_MODE_PREAMBLE + "\n" + base_prompt
+        else:
+            self.system_prompt = base_prompt
+
         self.include_file_tools = include_file_tools
         self.max_turns = max_turns
         self.thinking_budget = thinking_budget
@@ -172,7 +201,11 @@ class MatlabAgent:
         self._build_tools()
 
     def _build_tools(self) -> None:
-        """Build the MCP server and allowed tools list."""
+        """Build the MCP server and allowed tools list.
+
+        In plan mode, only read-only tools are available to encourage
+        requirements gathering and planning instead of immediate execution.
+        """
         # Create MCP server with MATLAB + Simulink + File tools
         all_tools = MATLAB_TOOLS + SIMULINK_TOOLS + FILE_TOOLS
 
@@ -187,26 +220,43 @@ class MatlabAgent:
             self.allowed_tools = self._custom_allowed_tools.copy()
             return
 
-        # Build default allowed tools list
-        self.allowed_tools: List[str] = [
-            # MATLAB tools (MCP format: mcp__{server}__{tool})
+        # Tools that modify state (blocked in plan mode)
+        execution_tools = [
             "mcp__matlab__matlab_execute",
-            "mcp__matlab__matlab_workspace",
             "mcp__matlab__matlab_plot",
-            # Simulink tools
-            "mcp__matlab__simulink_query",
             "mcp__matlab__simulink_modify",
-            # File tools
-            "mcp__matlab__file_read",
             "mcp__matlab__file_write",
-            "mcp__matlab__file_list",
             "mcp__matlab__file_mkdir",
         ]
 
+        # Read-only tools (always available)
+        readonly_tools = [
+            "mcp__matlab__matlab_workspace",
+            "mcp__matlab__simulink_query",
+            "mcp__matlab__file_read",
+            "mcp__matlab__file_list",
+        ]
+
+        # Build allowed tools list based on execution mode
+        if self.execution_mode == 'plan':
+            # Plan mode: only read-only tools
+            self.allowed_tools: List[str] = readonly_tools.copy()
+            self._logger.info("MatlabAgent", "plan_mode_tools", {
+                "execution_mode": self.execution_mode,
+                "allowed_tools": len(self.allowed_tools),
+                "blocked_tools": len(execution_tools)
+            })
+        else:
+            # Normal/Auto/Bypass mode: all tools available
+            self.allowed_tools: List[str] = readonly_tools + execution_tools
+
         if self.include_file_tools:
-            self.allowed_tools.extend([
-                "Read", "Write", "Glob", "Grep"
-            ])
+            if self.execution_mode == 'plan':
+                # Plan mode: only read tools
+                self.allowed_tools.extend(["Read", "Glob", "Grep"])
+            else:
+                # Other modes: all file tools
+                self.allowed_tools.extend(["Read", "Write", "Glob", "Grep"])
 
     def _get_options(self) -> ClaudeAgentOptions:
         """Get ClaudeAgentOptions for the client."""

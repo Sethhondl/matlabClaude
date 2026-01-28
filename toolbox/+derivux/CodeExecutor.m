@@ -16,6 +16,7 @@ classdef CodeExecutor < handle
         ExecutionWorkspace = 'base'     % Workspace to execute in
         RequireApproval = false         % Require user approval for all code
         LogExecutions = true            % Log all executions
+        BypassMode = false              % DANGEROUS: Skip all validation when true
     end
 
     properties (Constant, Access = private)
@@ -112,9 +113,18 @@ classdef CodeExecutor < handle
             %VALIDATECODE Check if code is safe to execute
             %
             %   [isValid, reason] = executor.validateCode(code)
+            %
+            %   In BypassMode, all code is considered valid (DANGEROUS!)
 
             isValid = true;
             reason = '';
+
+            % BYPASS MODE: Skip all validation
+            if obj.BypassMode
+                obj.Logger.warn('CodeExecutor', 'bypass_mode_active', struct(...
+                    'warning', 'All validation bypassed - code executed without security checks'));
+                return;
+            end
 
             % Check for blocked functions
             for i = 1:length(obj.BLOCKED_FUNCTIONS)
@@ -184,6 +194,84 @@ classdef CodeExecutor < handle
             %CLEARLOG Clear the execution log
 
             obj.ExecutionLog = {};
+        end
+
+        function isDangerous = preValidateCode(obj, code)
+            %PREVALIDATECODE Check if code contains dangerous operations
+            %
+            %   isDangerous = executor.preValidateCode(code)
+            %
+            %   This method checks code for potentially dangerous operations
+            %   WITHOUT blocking execution. Used by Auto mode to decide whether
+            %   to prompt the user or auto-execute.
+            %
+            %   Returns:
+            %       isDangerous: true if code contains blocked functions or patterns
+            %
+            %   This is a lightweight check - it flags code that would be blocked
+            %   by validateCode(), allowing the UI to decide whether to prompt.
+
+            isDangerous = false;
+
+            % Check for blocked functions
+            for i = 1:length(obj.BLOCKED_FUNCTIONS)
+                funcName = obj.BLOCKED_FUNCTIONS{i};
+
+                % Handle special case for '!' operator
+                if strcmp(funcName, '!')
+                    if contains(code, '!') && ~contains(code, '~=') && ~contains(code, '!=')
+                        isDangerous = true;
+                        obj.Logger.debug('CodeExecutor', 'dangerous_code_detected', struct(...
+                            'reason', 'shell_escape'));
+                        return;
+                    end
+                    continue;
+                end
+
+                % Build pattern to match function call or reference
+                pattern = sprintf('\\b%s\\s*[\\(\\.]?', regexptranslate('escape', funcName));
+
+                if ~isempty(regexp(code, pattern, 'once'))
+                    isDangerous = true;
+                    obj.Logger.debug('CodeExecutor', 'dangerous_code_detected', struct(...
+                        'reason', funcName));
+                    return;
+                end
+            end
+
+            % Check for blocked patterns
+            for i = 1:length(obj.BLOCKED_PATTERNS)
+                pattern = obj.BLOCKED_PATTERNS{i};
+
+                if ~isempty(regexp(code, pattern, 'once'))
+                    isDangerous = true;
+                    obj.Logger.debug('CodeExecutor', 'dangerous_code_detected', struct(...
+                        'reason', 'pattern_match', ...
+                        'pattern', pattern));
+                    return;
+                end
+            end
+
+            % Check for system commands (always dangerous unless explicitly allowed)
+            if contains(code, 'system(') || contains(code, 'dos(') || ...
+               contains(code, 'unix(')
+                isDangerous = true;
+                obj.Logger.debug('CodeExecutor', 'dangerous_code_detected', struct(...
+                    'reason', 'system_command'));
+                return;
+            end
+
+            % Check for destructive operations
+            destructiveOps = {'delete(', 'rmdir(', 'recycle('};
+            for i = 1:length(destructiveOps)
+                if contains(code, destructiveOps{i})
+                    isDangerous = true;
+                    obj.Logger.debug('CodeExecutor', 'dangerous_code_detected', struct(...
+                        'reason', 'destructive_operation', ...
+                        'operation', destructiveOps{i}));
+                    return;
+                end
+            end
         end
     end
 
