@@ -17,6 +17,13 @@ window.chatState = {
     initiatingTabId: null  // Tab that initiated current async request
 };
 
+// Interrupt state for double-ESC detection
+window.interruptState = {
+    lastEscTime: 0,
+    THRESHOLD_MS: 1000,  // 1 second window for double-ESC
+    hintTimeout: null
+};
+
 /**
  * Required setup function called by MATLAB's uihtml component
  * @param {Object} htmlComponent - The MATLAB HTML component interface
@@ -43,6 +50,7 @@ function setup(htmlComponent) {
         htmlComponent.addEventListener('apiKeyValidationResult', handleApiKeyValidationResult);
         htmlComponent.addEventListener('cliLoginResult', handleCliLoginResult);
         htmlComponent.addEventListener('tabStatusUpdate', handleTabStatusUpdate);
+        htmlComponent.addEventListener('interruptComplete', handleInterruptComplete);
 
         // Initialize UI event handlers
         initializeUI();
@@ -144,6 +152,9 @@ function handleEndStreaming(event) {
 
     setStreamingState(false);
 
+    // Reset interrupt manager state
+    InterruptManager.reset();
+
     // Update initiating tab's status to ready
     if (initiatingTabId) {
         TabManager.updateTabStatus(initiatingTabId, 'ready');
@@ -214,6 +225,9 @@ function initializeUI() {
 
     // Initialize execution mode manager
     ExecutionModeManager.init();
+
+    // Initialize interrupt manager for double-ESC detection
+    InterruptManager.init();
 
     // Global keyboard shortcut: Backtick (`) to cycle execution modes
     document.addEventListener('keydown', function(event) {
@@ -468,7 +482,6 @@ const SettingsManager = {
             this._bindChangeHandler('model-select');
             this._bindChangeHandler('theme-select');
             this._bindChangeHandler('headless-mode-checkbox');
-            this._bindChangeHandler('max-polling-duration');
             this._bindChangeHandler('logging-enabled-checkbox');
             this._bindChangeHandler('log-level-select');
             this._bindChangeHandler('log-sensitive-checkbox');
@@ -583,12 +596,6 @@ const SettingsManager = {
                 headlessCheckbox.checked = settings.headlessMode !== false;
             }
 
-            // Max polling duration (default to 600 seconds)
-            const maxPollingInput = document.getElementById('max-polling-duration');
-            if (maxPollingInput) {
-                maxPollingInput.value = settings.maxPollingDuration || 600;
-            }
-
             // Logging settings
             const loggingCheckbox = document.getElementById('logging-enabled-checkbox');
             if (loggingCheckbox) {
@@ -627,15 +634,9 @@ const SettingsManager = {
             const modelEl = document.getElementById('model-select');
             const themeEl = document.getElementById('theme-select');
             const headlessEl = document.getElementById('headless-mode-checkbox');
-            const maxPollingEl = document.getElementById('max-polling-duration');
             const loggingEl = document.getElementById('logging-enabled-checkbox');
             const logLevelEl = document.getElementById('log-level-select');
             const logSensitiveEl = document.getElementById('log-sensitive-checkbox');
-
-            // Parse and clamp max polling duration (60-3600 seconds)
-            var maxPollingValue = maxPollingEl ? parseInt(maxPollingEl.value, 10) : 600;
-            if (isNaN(maxPollingValue) || maxPollingValue < 60) maxPollingValue = 60;
-            if (maxPollingValue > 3600) maxPollingValue = 3600;
 
             // Get bypass cycling checkbox
             var bypassCyclingEl = document.getElementById('allow-bypass-cycling-checkbox');
@@ -646,7 +647,6 @@ const SettingsManager = {
                 theme: themeEl ? themeEl.value : 'dark',
                 codeExecutionMode: ExecutionModeManager.getCurrentMode(),
                 headlessMode: headlessEl ? headlessEl.checked : true,
-                maxPollingDuration: maxPollingValue,
                 loggingEnabled: loggingEl ? loggingEl.checked : true,
                 logLevel: logLevelEl ? logLevelEl.value : 'INFO',
                 logSensitiveData: logSensitiveEl ? logSensitiveEl.checked : true,
@@ -1483,6 +1483,176 @@ var ExecutionModeManager = {
 };
 
 // ============================================================================
+// Interrupt Manager (Double-ESC to Stop)
+// ============================================================================
+
+/**
+ * InterruptManager handles double-ESC keyboard shortcut to interrupt Claude requests.
+ * Similar to Claude Code's behavior - press ESC twice within 1 second to interrupt.
+ */
+var InterruptManager = {
+    /**
+     * Initialize the interrupt manager - attach global ESC listener
+     */
+    init: function() {
+        try {
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape') {
+                    InterruptManager._handleEscPress();
+                }
+            });
+        } catch (err) {
+            console.error('InterruptManager.init error:', err);
+        }
+    },
+
+    /**
+     * Handle ESC key press - detect double-tap pattern
+     */
+    _handleEscPress: function() {
+        // Only handle ESC if we're streaming
+        if (!window.chatState.isStreaming) {
+            return;
+        }
+
+        // Close settings modal if open (don't count as interrupt)
+        if (SettingsManager.isOpen) {
+            return;
+        }
+
+        var now = Date.now();
+        var state = window.interruptState;
+        var timeSinceLastEsc = now - state.lastEscTime;
+
+        if (timeSinceLastEsc <= state.THRESHOLD_MS && state.lastEscTime > 0) {
+            // Double-ESC detected - trigger interrupt
+            this._clearHint();
+            this._triggerInterrupt();
+            state.lastEscTime = 0;  // Reset for next time
+        } else {
+            // First ESC - show hint and wait for second
+            state.lastEscTime = now;
+            this._showInterruptHint();
+        }
+    },
+
+    /**
+     * Show "Press ESC again to interrupt..." hint
+     */
+    _showInterruptHint: function() {
+        var state = window.interruptState;
+
+        // Clear any existing hint timeout
+        this._clearHint();
+
+        // Create hint element if needed
+        var hint = document.getElementById('interrupt-hint');
+        if (!hint) {
+            hint = document.createElement('div');
+            hint.id = 'interrupt-hint';
+            hint.className = 'interrupt-hint';
+            hint.textContent = 'Press ESC again to interrupt...';
+            document.body.appendChild(hint);
+        }
+
+        // Show the hint
+        hint.style.display = 'block';
+        hint.style.opacity = '1';
+
+        // Auto-hide after threshold time
+        state.hintTimeout = setTimeout(function() {
+            InterruptManager._clearHint();
+            window.interruptState.lastEscTime = 0;  // Reset if user didn't press ESC again
+        }, state.THRESHOLD_MS);
+    },
+
+    /**
+     * Clear the interrupt hint
+     */
+    _clearHint: function() {
+        var state = window.interruptState;
+
+        if (state.hintTimeout) {
+            clearTimeout(state.hintTimeout);
+            state.hintTimeout = null;
+        }
+
+        var hint = document.getElementById('interrupt-hint');
+        if (hint) {
+            hint.style.display = 'none';
+        }
+    },
+
+    /**
+     * Trigger the interrupt - send event to MATLAB
+     */
+    _triggerInterrupt: function() {
+        if (!window.matlabBridge) {
+            console.warn('InterruptManager: MATLAB bridge not available');
+            return;
+        }
+
+        // Update status to show interrupting
+        updateStatus('loading', 'Interrupting...');
+
+        // Send interrupt request to MATLAB
+        window.matlabBridge.sendEventToMATLAB('interruptRequest', {
+            timestamp: Date.now()
+        });
+    },
+
+    /**
+     * Reset interrupt state - called when streaming ends
+     */
+    reset: function() {
+        this._clearHint();
+        window.interruptState.lastEscTime = 0;
+    }
+};
+
+/**
+ * Handle interruptComplete event from MATLAB
+ */
+function handleInterruptComplete(event) {
+    try {
+        // Finalize streaming message if there was one
+        finalizeStreamingMessage();
+
+        // Add visible interrupted message to chat
+        addInterruptedMessage();
+
+        // Reset streaming state
+        setStreamingState(false);
+
+        // Reset interrupt manager
+        InterruptManager.reset();
+
+        // Update status
+        updateStatus('ready', 'Ready');
+
+        // Clear initiating tab ID
+        window.chatState.initiatingTabId = null;
+    } catch (err) {
+        console.error('handleInterruptComplete error:', err);
+    }
+}
+
+/**
+ * Add a visible "Thought interrupted by user" message to the chat
+ */
+function addInterruptedMessage() {
+    var history = document.getElementById('message-history');
+    if (!history) return;
+
+    var msgDiv = document.createElement('div');
+    msgDiv.className = 'system-message interrupted';
+    msgDiv.textContent = 'Thought interrupted by user';
+    history.appendChild(msgDiv);
+
+    scrollToBottom();
+}
+
+// ============================================================================
 // Tab Manager (Multi-Session Support)
 // ============================================================================
 
@@ -1530,6 +1700,20 @@ var TabManager = {
 
             // Create the initial tab
             this.createTab(true);  // true = initial tab, don't notify MATLAB
+
+            // Save tab state when window loses visibility (helps preserve state during MATLAB window switches)
+            var self = this;
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden && self.activeTabId) {
+                    var currentTab = self.tabs.get(self.activeTabId);
+                    var history = document.getElementById('message-history');
+                    if (currentTab && history) {
+                        currentTab.domSnapshot = history.innerHTML;
+                        currentTab.scrollPosition = history.scrollTop;
+                        currentTab.messages = window.chatState.messages.slice();
+                    }
+                }
+            });
 
             console.log('TabManager initialized');
         } catch (err) {
@@ -1698,6 +1882,11 @@ var TabManager = {
         tabState.unreadCount = 0;
         tabState.status = 'ready';
 
+        // Clear auto-executed blocks tracking for this tab
+        if (window.autoExecutedBlocks) {
+            window.autoExecutedBlocks.clear();
+        }
+
         // Clear message history if this is active tab
         if (tabId === this.activeTabId) {
             var history = document.getElementById('message-history');
@@ -1774,6 +1963,9 @@ var TabManager = {
         if (newTabState.domSnapshot) {
             history.innerHTML = newTabState.domSnapshot;
             history.scrollTop = newTabState.scrollPosition;
+        } else if (newTabState.messages && newTabState.messages.length > 0) {
+            // Fallback: rebuild DOM from messages array when domSnapshot is unavailable
+            this.rebuildFromMessages(newTabState.messages);
         } else if (!isInitial) {
             // Fresh tab with no content yet
             history.innerHTML = '';
@@ -1796,6 +1988,59 @@ var TabManager = {
                 timestamp: Date.now()
             });
         }
+    },
+
+    /**
+     * Rebuild the message history DOM from the messages array.
+     * Used as fallback when domSnapshot is unavailable (e.g., after window focus changes).
+     * @param {Array} messages - Array of message objects with role, content, and optional images
+     */
+    rebuildFromMessages: function(messages) {
+        var history = document.getElementById('message-history');
+        if (!history) return;
+
+        history.innerHTML = '';
+
+        if (!messages || messages.length === 0) {
+            showWelcomeMessage();
+            return;
+        }
+
+        messages.forEach(function(msg) {
+            var messageDiv = document.createElement('div');
+            messageDiv.className = 'message ' + msg.role;
+
+            var contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+
+            if (msg.role === 'user') {
+                // User messages are plain text
+                contentDiv.textContent = msg.content;
+            } else {
+                // Assistant messages use markdown rendering
+                contentDiv.innerHTML = parseMarkdown(msg.content);
+
+                // Re-add images if present
+                if (msg.images && msg.images.length > 0) {
+                    msg.images.forEach(function(imgData) {
+                        var imgContainer = document.createElement('div');
+                        imgContainer.className = 'message-image-container';
+                        imgContainer.innerHTML = createImageHTML(imgData);
+                        contentDiv.insertBefore(imgContainer, contentDiv.firstChild);
+                    });
+                }
+            }
+
+            messageDiv.appendChild(contentDiv);
+            history.appendChild(messageDiv);
+
+            // Process code blocks for MATLAB syntax highlighting
+            if (msg.role === 'assistant') {
+                processCodeBlocks(messageDiv);
+            }
+        });
+
+        scrollToBottom();
     },
 
     /**

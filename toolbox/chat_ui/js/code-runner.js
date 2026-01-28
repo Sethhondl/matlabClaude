@@ -232,4 +232,9 @@ function clearAllResults() {
 
     const loadings = document.querySelectorAll('.code-loading');
     loadings.forEach(loading => loading.remove());
+
+    // Also clear the auto-executed blocks tracking
+    if (window.autoExecutedBlocks) {
+        window.autoExecutedBlocks.clear();
+    }
 }

@@ -94,6 +94,8 @@ class MatlabBridge:
         self._async_complete: bool = False
         self._async_lock = threading.Lock()
         self._async_thread: Optional[threading.Thread] = None
+        self._interrupt_requested: bool = False  # Flag for double-ESC interrupt
+        self._current_task: Optional[asyncio.Task] = None  # Store running task for cancellation
 
         # Persistent event loop for SDK mode (keeps agent alive between messages)
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -108,9 +110,15 @@ class MatlabBridge:
         self._session_contexts: Dict[str, SessionContext] = {}
         self._active_session_id: Optional[str] = None
 
+        # Execution mode (default to 'prompt' for safety)
+        self._execution_mode = 'prompt'
+
         # Initialize based on mode
         if self._use_sdk:
-            self._agent = MatlabAgent(model=self._current_model)
+            self._agent = MatlabAgent(
+                model=self._current_model,
+                execution_mode=self._execution_mode
+            )
             self._start_persistent_loop()
         else:
             self._process_manager = ClaudeProcessManager()
@@ -373,6 +381,7 @@ class MatlabBridge:
             self._async_chunks = []
             self._async_content = []
             self._async_complete = False
+            self._interrupt_requested = False  # Reset interrupt flag for new request
 
         # Clear any stale images from previous requests
         clear_images()
@@ -448,21 +457,45 @@ class MatlabBridge:
             agent = self._agent
             agent_name = "GeneralAgent"
 
+            # Check if execution mode changed (requires agent recreation)
+            current_agent_mode = getattr(self._agent, 'execution_mode', 'prompt') if self._agent else 'prompt'
+            mode_changed = current_agent_mode != self._execution_mode
+
             if routing and routing.config:
                 agent_name = routing.config.name
 
-                # Check if we need to switch agents
+                # Check if we need to switch agents (config change or mode change)
                 current_config = getattr(self._agent, '_config_name', None)
-                if current_config != agent_name:
+                if current_config != agent_name or mode_changed:
                     # Stop current agent if running
                     if self._agent_running and self._agent:
                         await self._agent.stop()
                         self._agent_running = False
 
-                    # Create new agent from config
+                    # Create new agent from config with current execution mode
                     self._agent = MatlabAgent.from_config(routing.config)
                     self._agent._config_name = agent_name  # Track config for switching
+                    self._agent.execution_mode = self._execution_mode  # Apply current mode
                     agent = self._agent
+
+            elif mode_changed:
+                # No routing config change, but execution mode changed
+                self._logger.info("MatlabBridge", "execution_mode_agent_switch", {
+                    "old_mode": current_agent_mode,
+                    "new_mode": self._execution_mode
+                })
+
+                # Stop current agent if running
+                if self._agent_running and self._agent:
+                    await self._agent.stop()
+                    self._agent_running = False
+
+                # Create new agent with updated execution mode
+                self._agent = MatlabAgent(
+                    model=self._current_model,
+                    execution_mode=self._execution_mode
+                )
+                agent = self._agent
 
             if not agent:
                 # Set error response for missing agent case
@@ -488,6 +521,14 @@ class MatlabBridge:
                 images = []
 
                 async for content in agent.query(full_prompt):
+                    # Check for interrupt request (double-ESC)
+                    if self._interrupt_requested:
+                        self._logger.info("MatlabBridge", "async_interrupted", {
+                            "agent_name": agent_name,
+                            "text_so_far": len(''.join(text_parts))
+                        })
+                        break
+
                     with self._async_lock:
                         # Store full structured content
                         self._async_content.append(content)
@@ -536,6 +577,25 @@ class MatlabBridge:
                 if agent.turn_count >= agent.COMPACTION_THRESHOLD:
                     await agent.compact_conversation()
 
+            except asyncio.CancelledError:
+                # Task was cancelled by interrupt_process() - handle gracefully
+                self._logger.info("MatlabBridge", "async_cancelled", {
+                    "agent_name": agent_name
+                })
+                with self._async_lock:
+                    self._async_response = {
+                        'text': ''.join(text_parts) if text_parts else '',
+                        'images': images if images else [],
+                        'success': False,
+                        'error': 'Cancelled by user',
+                        'session_id': '',
+                        'agent_name': agent_name,
+                        'routing_reason': routing.reason if routing else '',
+                        'interrupted': True
+                    }
+                    self._async_complete = True
+                # Don't re-raise - let the wrapper's finally block clean up
+
             except Exception as e:
                 self._logger.error("MatlabBridge", "async_error", {
                     "agent_name": agent_name,
@@ -572,12 +632,21 @@ class MatlabBridge:
                         }
                         self._async_complete = True
 
+        # Wrapper to capture the task reference for cancellation support
+        async def run_with_cancel_support():
+            # Store the task so interrupt_process() can cancel it
+            self._current_task = asyncio.current_task()
+            try:
+                await run()
+            finally:
+                self._current_task = None
+
         # Submit to persistent event loop (non-blocking)
         if self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(run(), self._loop)
+            asyncio.run_coroutine_threadsafe(run_with_cancel_support(), self._loop)
         else:
             # Fallback if loop not available
-            asyncio.run(run())
+            asyncio.run(run_with_cancel_support())
 
     def poll_async_chunks(self) -> List[str]:
         """Poll for new async text chunks (backward compatible).
@@ -628,6 +697,86 @@ class MatlabBridge:
         """Stop any running process."""
         if self._process_manager:
             self._process_manager.stop_process()
+
+    def interrupt_process(self) -> bool:
+        """Interrupt running async process (user pressed ESC-ESC).
+
+        This method is called when the user presses ESC twice to interrupt
+        the current Claude request. It sets flags to stop the async operation
+        gracefully and marks the response as interrupted.
+
+        Returns:
+            True if an interrupt was triggered, False if nothing was running.
+        """
+        self._logger.info("MatlabBridge", "interrupt_requested", {
+            "sdk_mode": self._use_sdk,
+            "async_complete": self._async_complete
+        })
+
+        # Check if there's anything to interrupt
+        with self._async_lock:
+            if self._async_complete:
+                self._logger.debug("MatlabBridge", "interrupt_nothing_to_stop", {})
+                return False
+
+            # Set interrupt flag for SDK mode
+            self._interrupt_requested = True
+
+            # Mark async as complete with interrupted status
+            self._async_response = {
+                'text': '',
+                'images': [],
+                'success': False,
+                'error': 'Interrupted by user',
+                'session_id': '',
+                'agent_name': '',
+                'routing_reason': '',
+                'interrupted': True
+            }
+            self._async_complete = True
+
+        # Cancel the running task if it exists (this forcefully interrupts waiting)
+        if self._current_task and not self._current_task.done():
+            self._logger.info("MatlabBridge", "cancelling_task", {})
+            if self._loop and self._loop.is_running():
+                # Schedule cancellation from the event loop thread
+                self._loop.call_soon_threadsafe(self._current_task.cancel)
+                # Brief wait to let cancellation propagate
+                time.sleep(0.1)
+
+        # Stop the agent if in SDK mode
+        if self._use_sdk and self._agent_running and self._agent:
+            try:
+                if self._loop and self._loop.is_running():
+                    # Stop agent via event loop
+                    async def stop_agent():
+                        try:
+                            await self._agent.stop()
+                        except Exception:
+                            pass
+                        finally:
+                            self._agent_running = False
+
+                    future = asyncio.run_coroutine_threadsafe(stop_agent(), self._loop)
+                    try:
+                        future.result(timeout=2.0)  # Quick timeout for interrupt
+                    except Exception:
+                        pass
+            except Exception as e:
+                self._logger.warn("MatlabBridge", "interrupt_agent_error", {
+                    "error": str(e)
+                })
+
+        # Stop CLI process if in CLI mode
+        if self._process_manager:
+            self._process_manager.stop_process()
+
+        self._logger.info("MatlabBridge", "interrupt_complete", {})
+
+        # Reset interrupt flag for next request
+        self._interrupt_requested = False
+
+        return True
 
     def shutdown(self, timeout: float = 5.0) -> bool:
         """Gracefully shutdown the bridge with timeout protection.
@@ -795,8 +944,11 @@ class MatlabBridge:
             await self._agent.stop()
             self._agent_running = False
 
-        # Create fresh agent instance with current model
-        self._agent = MatlabAgent(model=self._current_model)
+        # Create fresh agent instance with current model and execution mode
+        self._agent = MatlabAgent(
+            model=self._current_model,
+            execution_mode=self._execution_mode
+        )
 
     def update_model(self, model_name: str) -> None:
         """Update the model for subsequent requests.

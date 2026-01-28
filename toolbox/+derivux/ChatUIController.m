@@ -35,8 +35,11 @@ classdef ChatUIController < handle
         % Polling timeout
         PollingStartTime        % Time when polling started (for max ceiling)
         LastActivityTime        % Time of last content received (for activity timeout)
-        MaxPollingDuration = 600    % Max total polling duration (10 minutes) - safety ceiling
-        ActivityTimeout = 120       % Timeout after no activity (2 minutes)
+        MaxPollingDuration = 86400    % Max total polling duration (24 hours) - no timeout
+        ActivityTimeout = 86400       % Timeout after no activity (24 hours) - no timeout
+
+        % Interrupt state
+        IsInterrupting = false  % Whether an interrupt is in progress
     end
 
     events
@@ -258,6 +261,9 @@ classdef ChatUIController < handle
 
                     case 'switchSession'
                         obj.handleSwitchSession(eventData);
+
+                    case 'interruptRequest'
+                        obj.handleInterruptRequest(eventData);
 
                     otherwise
                         warning('ChatUIController:UnknownEvent', ...
@@ -509,6 +515,12 @@ classdef ChatUIController < handle
 
         function onRunCode(obj, data)
             %ONRUNCODE Handle code execution request
+            %
+            %   Execution behavior depends on the current execution mode:
+            %   - 'plan': No execution (blocked at UI level, but safety check here)
+            %   - 'prompt': Always prompts for approval before execution
+            %   - 'auto': Smart auto-execute - safe code runs, dangerous prompts
+            %   - 'bypass': No restrictions - all code executes without checks
 
             code = data.code;
             startTime = tic;
@@ -516,6 +528,63 @@ classdef ChatUIController < handle
             obj.Logger.info('ChatUIController', 'code_execution_requested', struct(...
                 'code_length', strlength(code), ...
                 'block_id', data.blockId));
+
+            % Load current execution mode from Settings
+            try
+                settings = derivux.config.Settings.load();
+                mode = char(settings.codeExecutionMode);
+            catch
+                mode = 'prompt';  % Default to safest mode
+            end
+
+            % Configure CodeExecutor based on execution mode
+            switch mode
+                case 'plan'
+                    % Plan mode: shouldn't reach here, but block if it does
+                    obj.Logger.warn('ChatUIController', 'code_execution_blocked_plan_mode');
+                    obj.sendToJS('codeResult', struct(...
+                        'success', false, ...
+                        'output', 'Code execution is disabled in Plan mode. Switch to Normal, Auto, or Bypass mode to execute code.', ...
+                        'blockId', data.blockId));
+                    return;
+
+                case 'prompt'
+                    % Prompt mode: always require approval
+                    obj.CodeExecutor.RequireApproval = true;
+                    obj.CodeExecutor.BypassMode = false;
+                    obj.CodeExecutor.AllowSystemCommands = false;
+                    obj.CodeExecutor.AllowDestructiveOps = false;
+
+                case 'auto'
+                    % Auto mode: smart execution - only prompt for dangerous code
+                    isDangerous = obj.CodeExecutor.preValidateCode(code);
+                    obj.CodeExecutor.RequireApproval = isDangerous;
+                    obj.CodeExecutor.BypassMode = false;
+                    obj.CodeExecutor.AllowSystemCommands = false;
+                    obj.CodeExecutor.AllowDestructiveOps = false;
+
+                    if isDangerous
+                        obj.Logger.info('ChatUIController', 'auto_mode_dangerous_code', struct(...
+                            'block_id', data.blockId, ...
+                            'prompting', true));
+                    end
+
+                case 'bypass'
+                    % Bypass mode: DANGEROUS - no restrictions
+                    obj.CodeExecutor.RequireApproval = false;
+                    obj.CodeExecutor.BypassMode = true;
+                    obj.CodeExecutor.AllowSystemCommands = true;
+                    obj.CodeExecutor.AllowDestructiveOps = true;
+
+                    obj.Logger.warn('ChatUIController', 'bypass_mode_execution', struct(...
+                        'block_id', data.blockId, ...
+                        'code_length', strlength(code)));
+
+                otherwise
+                    % Unknown mode - default to safest behavior
+                    obj.CodeExecutor.RequireApproval = true;
+                    obj.CodeExecutor.BypassMode = false;
+            end
 
             % Execute the code (stays in MATLAB)
             [result, isError] = obj.CodeExecutor.execute(code);
@@ -1050,6 +1119,70 @@ classdef ChatUIController < handle
             catch ME
                 warning('ChatUIController:SwitchSessionError', ...
                     'Error switching session: %s', ME.message);
+            end
+        end
+
+        function handleInterruptRequest(obj, ~)
+            %HANDLEINTERRUPTREQUEST Handle interrupt request from JavaScript
+            %
+            %   Called when user presses ESC twice (double-ESC) to interrupt
+            %   the current Claude request. Similar to Claude Code's behavior.
+
+            try
+                % Check if we're actually streaming
+                if ~obj.IsStreaming
+                    obj.Logger.debug('ChatUIController', 'interrupt_ignored_not_streaming');
+                    return;
+                end
+
+                % Prevent multiple interrupts
+                if obj.IsInterrupting
+                    obj.Logger.debug('ChatUIController', 'interrupt_ignored_already_interrupting');
+                    return;
+                end
+
+                obj.IsInterrupting = true;
+
+                obj.Logger.info('ChatUIController', 'interrupt_requested', struct(...
+                    'trace_id', obj.CurrentTraceId, ...
+                    'initiating_tab', obj.InitiatingTabId));
+
+                % Stop polling immediately
+                obj.stopPolling();
+
+                % Interrupt the Python process
+                if ~isempty(obj.PythonBridge)
+                    try
+                        obj.PythonBridge.interrupt_process();
+                    catch ME
+                        obj.Logger.warn('ChatUIController', 'interrupt_python_error', struct(...
+                            'error', ME.message));
+                    end
+                end
+
+                % Append interrupted message to stream
+                if ~isempty(obj.CurrentStreamText)
+                    obj.sendStreamChunk(newline + newline + '_[Response interrupted by user]_');
+                end
+
+                % End streaming
+                obj.endStreaming();
+
+                % Send interrupt complete event to JavaScript
+                obj.sendToJS('interruptComplete', struct('timestamp', now));
+
+                % Reset interrupt state
+                obj.IsInterrupting = false;
+
+                obj.Logger.info('ChatUIController', 'interrupt_complete', struct(...
+                    'trace_id', obj.CurrentTraceId));
+
+            catch ME
+                obj.IsInterrupting = false;
+                obj.Logger.error('ChatUIController', 'interrupt_error', struct(...
+                    'error', ME.message));
+                warning('ChatUIController:InterruptError', ...
+                    'Error handling interrupt: %s', ME.message);
             end
         end
 

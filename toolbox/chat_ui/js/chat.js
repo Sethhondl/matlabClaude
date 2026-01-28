@@ -4,6 +4,9 @@
  * Handles message rendering, markdown parsing, and chat history management.
  */
 
+// Track auto-executed block IDs to prevent re-execution on re-renders
+window.autoExecutedBlocks = window.autoExecutedBlocks || new Set();
+
 /**
  * Add a user message to the chat
  * @param {string} content - Message content
@@ -160,14 +163,22 @@ function finalizeStreamingMessage() {
         processCodeBlocks(messageDiv);
     }
 
-    // Store in state (including info about images)
-    window.chatState.messages.push({
-        role: 'assistant',
-        content: streamMsg.content,
-        images: streamMsg.images || [],
-        hasImages: streamMsg.images && streamMsg.images.length > 0,
-        timestamp: Date.now()
-    });
+    // Only store in state if there's actual content or images
+    const hasContent = streamMsg.content && streamMsg.content.trim();
+    const hasImages = streamMsg.images && streamMsg.images.length > 0;
+
+    if (hasContent || hasImages) {
+        window.chatState.messages.push({
+            role: 'assistant',
+            content: streamMsg.content,
+            images: streamMsg.images || [],
+            hasImages: hasImages,
+            timestamp: Date.now()
+        });
+    } else if (messageDiv) {
+        // Remove the empty streaming message div if no content
+        messageDiv.remove();
+    }
 
     window.chatState.currentStreamMessage = null;
 
@@ -263,6 +274,7 @@ function createCodeBlockHTML(code, language, blockId) {
 
 /**
  * Process code blocks in a message element (for syntax highlighting, etc.)
+ * Also handles auto-execution when in 'auto' mode.
  * @param {HTMLElement} messageElement
  */
 function processCodeBlocks(messageElement) {
@@ -272,6 +284,43 @@ function processCodeBlocks(messageElement) {
     codeBlocks.forEach(block => {
         block.innerHTML = highlightMatlab(block.textContent);
     });
+
+    // Auto-execute mode: automatically run new MATLAB code blocks
+    if (typeof ExecutionModeManager !== 'undefined' &&
+        ExecutionModeManager.getCurrentMode() === 'auto') {
+
+        // Find all MATLAB code block containers
+        var codeContainers = messageElement.querySelectorAll('.code-block-container');
+
+        codeContainers.forEach(function(container) {
+            var blockId = container.getAttribute('data-block-id');
+            if (!blockId) return;
+
+            // Check if this is a MATLAB block (has Run button)
+            var runBtn = container.querySelector('.run-btn');
+            if (!runBtn) return;
+
+            // Skip if already auto-executed
+            if (window.autoExecutedBlocks.has(blockId)) {
+                return;
+            }
+
+            // Mark as auto-executed to prevent re-runs
+            window.autoExecutedBlocks.add(blockId);
+
+            // Auto-execute with a small delay (500ms) to allow UI to settle
+            // and give user a chance to see the code before it runs
+            setTimeout(function() {
+                // Double-check we're still in auto mode (user might have switched)
+                if (typeof ExecutionModeManager !== 'undefined' &&
+                    ExecutionModeManager.getCurrentMode() === 'auto') {
+
+                    console.log('Auto-executing code block:', blockId);
+                    runCode(blockId);
+                }
+            }, 500);
+        });
+    }
 }
 
 /**
