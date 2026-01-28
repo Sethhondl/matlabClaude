@@ -6,7 +6,7 @@
 |-------|-------|
 | **Title** | Derivux for MATLAB: Workspace-Aware AI Integration with Secure Code Execution |
 | **Inventor** | Sebastian Hondl |
-| **Date of Conception** | January 15, 2026 |
+| **Date of Conception** | December 16, 2025 |
 | **Status** | Working Prototype (Private Repository) |
 | **Prior Public Disclosure** | None |
 
