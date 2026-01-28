@@ -49,79 +49,81 @@ The MATLAB license is a standard educational resource (like library access or ca
 ### 3.1 Three-Layer System Design
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                      MATLAB LAYER (MATLAB/MEX)                      │
-│  ┌────────────────┐  ┌─────────────────┐  ┌──────────────────────┐  │
-│  │  DerivuxApp    │  │ SimulinkBridge  │  │    CodeExecutor      │  │
-│  │  (Orchestrator)│  │ (Model Access)  │  │    (Security)        │  │
-│  └───────┬────────┘  └────────┬────────┘  └──────────┬───────────┘  │
-│          │                    │                      │              │
-│  ┌───────┴────────────────────┴──────────────────────┴───────────┐  │
-│  │              WorkspaceContextProvider                          │  │
-│  │              (Real-time Variable Introspection)                │  │
-│  └────────────────────────────┬──────────────────────────────────┘  │
-└───────────────────────────────┼─────────────────────────────────────┘
-                                │ py.derivux.MatlabBridge()
-                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                     BRIDGE LAYER (Python)                           │
-│  ┌────────────────┐  ┌─────────────────┐  ┌──────────────────────┐  │
-│  │  MatlabBridge  │  │ SpecializedAgent│  │   SessionContext     │  │
-│  │  (Orchestrator)│  │    Router       │  │   (Isolation)        │  │
-│  └───────┬────────┘  └────────┬────────┘  └──────────────────────┘  │
-│          │                    │                                     │
-│  ┌───────┴────────────────────┴────────────────────────────────┐    │
-│  │           Persistent Async Event Loop                        │    │
-│  │           (Thread-safe, maintains SDK client state)          │    │
-│  └────────────────────────────┬────────────────────────────────┘    │
-└───────────────────────────────┼─────────────────────────────────────┘
-                                │ Claude Agent SDK
-                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                       AI LAYER (Claude SDK)                         │
-│  ┌────────────────┐  ┌─────────────────┐  ┌──────────────────────┐  │
-│  │  MatlabAgent   │  │   MCP Server    │  │   Tool Registry      │  │
-│  │  (SDK Client)  │  │   (In-Process)  │  │   (matlab_*, file_*) │  │
-│  └───────┬────────┘  └────────┬────────┘  └──────────────────────┘  │
-│          └────────────────────┴──────────────────────────────────┘  │
-│                          Claude API                                  │
-└─────────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------------+
+|                      MATLAB LAYER (MATLAB/MEX)                        |
+|   +----------------+  +-----------------+  +--------------------+     |
+|   |  DerivuxApp    |  | SimulinkBridge  |  |   CodeExecutor     |     |
+|   |  (Orchestrator)|  | (Model Access)  |  |   (Security)       |     |
+|   +-------+--------+  +--------+--------+  +---------+----------+     |
+|           |                    |                     |                |
+|   +-------+--------------------+---------------------+-----------+    |
+|   |              WorkspaceContextProvider                        |    |
+|   |              (Real-time Variable Introspection)              |    |
+|   +-----------------------------+--------------------------------+    |
++----------------------------------+------------------------------------+
+                                   |
+                                   | py.derivux.MatlabBridge()
+                                   v
++-----------------------------------------------------------------------+
+|                       BRIDGE LAYER (Python)                           |
+|   +----------------+  +-----------------+  +--------------------+     |
+|   |  MatlabBridge  |  | SpecializedAgent|  |  SessionContext    |     |
+|   |  (Orchestrator)|  |    Router       |  |  (Isolation)       |     |
+|   +-------+--------+  +--------+--------+  +--------------------+     |
+|           |                    |                                      |
+|   +-------+--------------------+----------------------------------+   |
+|   |           Persistent Async Event Loop                         |   |
+|   |           (Thread-safe, maintains SDK client state)           |   |
+|   +-----------------------------+---------------------------------+   |
++----------------------------------+------------------------------------+
+                                   |
+                                   | Claude Agent SDK
+                                   v
++-----------------------------------------------------------------------+
+|                        AI LAYER (Claude SDK)                          |
+|   +----------------+  +-----------------+  +--------------------+     |
+|   |  MatlabAgent   |  |   MCP Server    |  |   Tool Registry    |     |
+|   |  (SDK Client)  |  |   (In-Process)  |  |  (matlab_*, file_*)|     |
+|   +-------+--------+  +--------+--------+  +--------------------+     |
+|           +--------------------|-------+                              |
+|                          Claude API                                   |
++-----------------------------------------------------------------------+
 ```
 
 ### 3.2 Data Flow
 
 ```
 User Message (Chat UI)
-       │
-       ▼
-┌──────────────────┐
-│ webwindow msg    │ ◄── JavaScript postMessage from embedded HTML
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ ChatUIController │ ◄── MATLAB class handles UI events
-└────────┬─────────┘
-         │ py.derivux.MatlabBridge.start_async_message()
-         ▼
-┌──────────────────┐
-│ MatlabBridge     │ ◄── Routes to agent, manages async streaming
-└────────┬─────────┘
-         │ asyncio.run_coroutine_threadsafe()
-         ▼
-┌──────────────────┐
-│ MatlabAgent      │ ◄── Claude SDK client with MCP tools
-└────────┬─────────┘
-         │ Tool calls (mcp__matlab__*)
-         ▼
-┌──────────────────┐
-│ MCP Tool Handler │ ◄── matlab_execute, simulink_modify, etc.
-└────────┬─────────┘
-         │ matlab.engine API
-         ▼
-┌──────────────────┐
-│ MATLAB Engine    │ ◄── Code execution, variable access
-└──────────────────┘
+         |
+         v
++--------------------+
+| webwindow msg      | <-- JavaScript postMessage from embedded HTML
++--------+-----------+
+         |
+         v
++--------------------+
+| ChatUIController   | <-- MATLAB class handles UI events
++--------+-----------+
+         |  py.derivux.MatlabBridge.start_async_message()
+         v
++--------------------+
+| MatlabBridge       | <-- Routes to agent, manages async streaming
++--------+-----------+
+         |  asyncio.run_coroutine_threadsafe()
+         v
++--------------------+
+| MatlabAgent        | <-- Claude SDK client with MCP tools
++--------+-----------+
+         |  Tool calls (mcp__matlab__*)
+         v
++--------------------+
+| MCP Tool Handler   | <-- matlab_execute, simulink_modify, etc.
++--------+-----------+
+         |  matlab.engine API
+         v
++--------------------+
+| MATLAB Engine      | <-- Code execution, variable access
++--------------------+
 ```
 
 ### 3.3 Communication Protocol
