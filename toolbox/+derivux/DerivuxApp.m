@@ -214,6 +214,15 @@ classdef DerivuxApp < handle
                     'error', ME.message));
             end
 
+            % Sync execution mode from settings to Python
+            % This ensures Plan mode is enforced from startup if saved
+            try
+                obj.PythonBridge.set_execution_mode(char(obj.Settings.codeExecutionMode));
+            catch ME
+                obj.Logger.warn('DerivuxApp', 'python_execution_mode_sync_failed', struct(...
+                    'error', ME.message));
+            end
+
             % Create Simulink bridge (MATLAB-side)
             obj.SimulinkBridge = derivux.SimulinkBridge();
         end

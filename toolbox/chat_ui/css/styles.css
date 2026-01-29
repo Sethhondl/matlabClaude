@@ -1446,3 +1446,150 @@ body {
     font-style: italic;
     margin: 8px 0;
 }
+
+/* ===========================
+   Execution Intent Modal
+   Shown when user tries to execute in Plan mode
+   =========================== */
+
+.exec-intent-modal {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    animation: modalFadeIn 0.15s ease;
+}
+
+@keyframes modalFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.exec-intent-content {
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    width: 360px;
+    max-width: 90vw;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+    animation: modalSlideIn 0.2s ease;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.exec-intent-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.exec-intent-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.exec-intent-message {
+    padding: 16px 20px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin: 0;
+}
+
+.exec-intent-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 20px 16px;
+}
+
+.exec-intent-btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background-color: var(--bg-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: left;
+}
+
+.exec-intent-btn:hover {
+    background-color: var(--bg-tertiary);
+    border-color: var(--text-secondary);
+}
+
+.exec-intent-icon {
+    font-size: 18px;
+    width: 24px;
+    text-align: center;
+}
+
+.exec-intent-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+.exec-intent-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+/* Mode-specific button colors */
+.exec-intent-btn.exec-intent-bypass {
+    border-color: var(--sb-exec-bypass);
+}
+
+.exec-intent-btn.exec-intent-bypass:hover {
+    background-color: rgba(224, 108, 117, 0.1);
+}
+
+.exec-intent-btn.exec-intent-bypass .exec-intent-label {
+    color: var(--sb-exec-bypass);
+}
+
+.exec-intent-btn.exec-intent-auto:hover {
+    border-color: var(--sb-exec-auto);
+    background-color: rgba(209, 154, 102, 0.1);
+}
+
+.exec-intent-btn.exec-intent-prompt:hover {
+    border-color: var(--sb-exec-prompt);
+    background-color: rgba(152, 195, 121, 0.1);
+}
+
+.exec-intent-cancel {
+    display: block;
+    width: 100%;
+    padding: 10px 16px;
+    margin: 0 20px 16px;
+    width: calc(100% - 40px);
+    border: none;
+    border-radius: 6px;
+    background-color: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.exec-intent-cancel:hover {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+}

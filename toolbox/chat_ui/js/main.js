@@ -51,6 +51,8 @@ function setup(htmlComponent) {
         htmlComponent.addEventListener('cliLoginResult', handleCliLoginResult);
         htmlComponent.addEventListener('tabStatusUpdate', handleTabStatusUpdate);
         htmlComponent.addEventListener('interruptComplete', handleInterruptComplete);
+        htmlComponent.addEventListener('fullStateResponse', handleFullStateResponse);
+        htmlComponent.addEventListener('executionIntentPrompt', handleExecutionIntentPrompt);
 
         // Initialize UI event handlers
         initializeUI();
@@ -1479,6 +1481,14 @@ var ExecutionModeManager = {
      */
     getCurrentMode: function() {
         return this.EXEC_MODES[this.currentModeIndex].id;
+    },
+
+    /**
+     * Check if bypass mode cycling is allowed
+     * @returns {boolean} True if bypass cycling is enabled in settings
+     */
+    isBypassCyclingAllowed: function() {
+        return this.bypassCyclingAllowed === true;
     }
 };
 
@@ -1652,6 +1662,164 @@ function addInterruptedMessage() {
     scrollToBottom();
 }
 
+/**
+ * Handle fullStateResponse event from MATLAB
+ * This is called after JS requests full state from Python (source of truth).
+ * Used to restore tabs after uihtml component regeneration.
+ * @param {Event} event - Contains tabs, activeTabId, nextTabNumber
+ */
+function handleFullStateResponse(event) {
+    try {
+        var data = event && event.Data ? event.Data : {};
+        TabManager.handleFullStateResponse(data);
+    } catch (err) {
+        console.error('handleFullStateResponse error:', err);
+    }
+}
+
+/**
+ * Handle executionIntentPrompt event from MATLAB
+ * Shows a modal asking user which execution mode to switch to.
+ * @param {Event} event - Contains intervention data with type, confidence, message
+ */
+function handleExecutionIntentPrompt(event) {
+    try {
+        var data = event && event.Data ? event.Data : {};
+        showExecutionIntentPrompt(data);
+    } catch (err) {
+        console.error('handleExecutionIntentPrompt error:', err);
+    }
+}
+
+/**
+ * Show execution intent modal prompting user to switch modes.
+ * Respects the bypass cycling setting to determine which options to show.
+ * @param {Object} intervention - Intervention data from MATLAB
+ */
+function showExecutionIntentPrompt(intervention) {
+    // Don't show if already streaming or if modal already exists
+    if (window.chatState.isStreaming) return;
+    if (document.getElementById('execution-intent-modal')) return;
+
+    var bypassAllowed = ExecutionModeManager.isBypassCyclingAllowed();
+
+    // Build buttons based on settings
+    var buttonsHtml = '';
+    if (bypassAllowed) {
+        buttonsHtml =
+            '<button class="exec-intent-btn exec-intent-bypass" data-mode="bypass">' +
+            '<span class="exec-intent-icon">⚠️</span>' +
+            '<span class="exec-intent-label">Bypass</span>' +
+            '<span class="exec-intent-desc">No restrictions</span>' +
+            '</button>' +
+            '<button class="exec-intent-btn exec-intent-auto" data-mode="auto">' +
+            '<span class="exec-intent-icon">⚡</span>' +
+            '<span class="exec-intent-label">Auto</span>' +
+            '<span class="exec-intent-desc">Auto-execute code</span>' +
+            '</button>' +
+            '<button class="exec-intent-btn exec-intent-prompt" data-mode="prompt">' +
+            '<span class="exec-intent-icon">✓</span>' +
+            '<span class="exec-intent-label">Normal</span>' +
+            '<span class="exec-intent-desc">Approve each execution</span>' +
+            '</button>';
+    } else {
+        buttonsHtml =
+            '<button class="exec-intent-btn exec-intent-auto" data-mode="auto">' +
+            '<span class="exec-intent-icon">⚡</span>' +
+            '<span class="exec-intent-label">Auto</span>' +
+            '<span class="exec-intent-desc">Auto-execute code</span>' +
+            '</button>' +
+            '<button class="exec-intent-btn exec-intent-prompt" data-mode="prompt">' +
+            '<span class="exec-intent-icon">✓</span>' +
+            '<span class="exec-intent-label">Normal</span>' +
+            '<span class="exec-intent-desc">Approve each execution</span>' +
+            '</button>';
+    }
+
+    // Create modal
+    var modal = document.createElement('div');
+    modal.id = 'execution-intent-modal';
+    modal.className = 'exec-intent-modal';
+    modal.innerHTML =
+        '<div class="exec-intent-content">' +
+        '<div class="exec-intent-header">' +
+        '<span class="exec-intent-title">Switch Execution Mode</span>' +
+        '</div>' +
+        '<p class="exec-intent-message">' + (intervention.message || 'It looks like you want to execute. Which mode?') + '</p>' +
+        '<div class="exec-intent-buttons">' +
+        buttonsHtml +
+        '</div>' +
+        '<button class="exec-intent-cancel" data-action="cancel">Stay in Plan Mode</button>' +
+        '</div>';
+
+    // Bind button handlers
+    var buttons = modal.querySelectorAll('[data-mode]');
+    for (var i = 0; i < buttons.length; i++) {
+        buttons[i].addEventListener('click', function(e) {
+            var mode = e.currentTarget.getAttribute('data-mode');
+
+            // Show bypass warning if selecting bypass mode
+            if (mode === 'bypass') {
+                var confirmed = confirm(
+                    '⚠️ WARNING: Bypass Mode\n\n' +
+                    'This mode removes ALL safety restrictions:\n' +
+                    '• No approval prompts before code execution\n' +
+                    '• Blocked functions (eval, delete, system) are ALLOWED\n' +
+                    '• Destructive operations are permitted\n\n' +
+                    'Are you sure you want to enable Bypass mode?'
+                );
+                if (!confirmed) {
+                    return;  // User cancelled
+                }
+            }
+
+            ExecutionModeManager.setMode(mode);
+            dismissIntervention();
+            modal.remove();
+        });
+    }
+
+    // Cancel button handler
+    var cancelBtn = modal.querySelector('[data-action="cancel"]');
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', function() {
+            dismissIntervention();
+            modal.remove();
+        });
+    }
+
+    // Click outside to close
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            dismissIntervention();
+            modal.remove();
+        }
+    });
+
+    // ESC to close
+    var escHandler = function(e) {
+        if (e.key === 'Escape') {
+            dismissIntervention();
+            modal.remove();
+            document.removeEventListener('keydown', escHandler);
+        }
+    };
+    document.addEventListener('keydown', escHandler);
+
+    document.body.appendChild(modal);
+}
+
+/**
+ * Dismiss the pending intervention in Python
+ */
+function dismissIntervention() {
+    if (window.matlabBridge) {
+        window.matlabBridge.sendEventToMATLAB('dismissIntervention', {
+            timestamp: Date.now()
+        });
+    }
+}
+
 // ============================================================================
 // Tab Manager (Multi-Session Support)
 // ============================================================================
@@ -1686,7 +1854,20 @@ var TabManager = {
      */
 
     /**
-     * Initialize the tab manager - creates first tab and binds events
+     * Flag to track if we're waiting for Python state
+     * @type {boolean}
+     */
+    waitingForState: false,
+
+    /**
+     * Timeout ID for fallback initialization
+     * @type {number|null}
+     */
+    initTimeoutId: null,
+
+    /**
+     * Initialize the tab manager - requests state from Python (source of truth)
+     * Falls back to creating initial tab if Python doesn't respond
      */
     init: function() {
         try {
@@ -1698,40 +1879,214 @@ var TabManager = {
                 });
             }
 
-            // Create the initial tab
-            this.createTab(true);  // true = initial tab, don't notify MATLAB
-
-            // Save tab state when window loses visibility (helps preserve state during MATLAB window switches)
+            // Save scroll position and tab state when window loses visibility
+            // This helps preserve state during MATLAB window switches
             var self = this;
             document.addEventListener('visibilitychange', function() {
                 if (document.hidden && self.activeTabId) {
-                    var currentTab = self.tabs.get(self.activeTabId);
-                    var history = document.getElementById('message-history');
-                    if (currentTab && history) {
-                        currentTab.domSnapshot = history.innerHTML;
-                        currentTab.scrollPosition = history.scrollTop;
-                        currentTab.messages = window.chatState.messages.slice();
-                    }
+                    self._saveCurrentTabState();
+                    // Also notify Python of scroll position
+                    self._syncScrollPositionToPython();
                 }
             });
 
-            console.log('TabManager initialized');
+            // Request full state from Python (source of truth)
+            // Python may have existing tabs from a previous JS context
+            this.waitingForState = true;
+            if (window.matlabBridge) {
+                window.matlabBridge.sendEventToMATLAB('requestFullState', {
+                    timestamp: Date.now()
+                });
+
+                // Set timeout fallback - if Python doesn't respond in 2s, create initial tab
+                this.initTimeoutId = setTimeout(function() {
+                    if (TabManager.waitingForState) {
+                        console.log('TabManager: Python state timeout, creating initial tab');
+                        TabManager.waitingForState = false;
+                        TabManager.createTab(true);
+                    }
+                }, 2000);
+            } else {
+                // No MATLAB bridge - create initial tab directly
+                this.waitingForState = false;
+                this.createTab(true);
+            }
+
+            console.log('TabManager initialized, waiting for Python state...');
         } catch (err) {
             console.error('TabManager.init error:', err);
+            // Fallback: create initial tab on error
+            this.waitingForState = false;
+            this.createTab(true);
+        }
+    },
+
+    /**
+     * Handle full state response from Python (source of truth)
+     * Rebuilds all tabs from Python state, restoring UI after component regeneration
+     * @param {Object} data - {tabs: Array, activeTabId: string, nextTabNumber: number}
+     */
+    handleFullStateResponse: function(data) {
+        try {
+            // Clear the initialization timeout
+            if (this.initTimeoutId) {
+                clearTimeout(this.initTimeoutId);
+                this.initTimeoutId = null;
+            }
+            this.waitingForState = false;
+
+            var tabs = data.tabs || [];
+            var activeTabId = data.activeTabId || '';
+            var nextTabNumber = data.nextTabNumber || 1;
+
+            console.log('TabManager: Received state from Python, tabs:', tabs.length);
+
+            // If no tabs from Python, create initial tab
+            if (tabs.length === 0) {
+                this.nextTabNumber = nextTabNumber;
+                this.createTab(true);  // Create initial tab, notify Python
+                return;
+            }
+
+            // Restore nextTabNumber from Python
+            this.nextTabNumber = nextTabNumber;
+
+            // Clear any existing local state (in case of re-init)
+            this.tabs.clear();
+            var container = document.getElementById('tab-container');
+            if (container) {
+                // Remove all existing tab elements (but not the new-tab button)
+                var existingTabs = container.querySelectorAll('.session-tab');
+                for (var i = 0; i < existingTabs.length; i++) {
+                    existingTabs[i].remove();
+                }
+            }
+
+            // Rebuild tabs from Python state
+            for (var j = 0; j < tabs.length; j++) {
+                var tabData = tabs[j];
+                this._restoreTabFromState(tabData);
+            }
+
+            // Switch to the active tab (or first tab if activeTabId not found)
+            var targetTabId = activeTabId;
+            if (!targetTabId || !this.tabs.has(targetTabId)) {
+                targetTabId = this.tabs.keys().next().value;
+            }
+
+            if (targetTabId) {
+                this.switchTab(targetTabId, true);  // true = don't notify MATLAB
+
+                // Restore scroll position for active tab
+                var activeTab = this.tabs.get(targetTabId);
+                if (activeTab && activeTab.scrollPosition > 0) {
+                    var history = document.getElementById('message-history');
+                    if (history) {
+                        setTimeout(function() {
+                            history.scrollTop = activeTab.scrollPosition;
+                        }, 100);
+                    }
+                }
+
+                // Handle streaming recovery for active tab
+                // If the active tab was mid-stream when JS context was lost,
+                // we need to restore the streaming UI state
+                if (activeTab && activeTab.isStreaming) {
+                    console.log('TabManager: Recovering streaming state for tab:', targetTabId);
+
+                    // Set global streaming state so polling continues
+                    window.chatState.isStreaming = true;
+                    window.chatState.initiatingTabId = targetTabId;
+                    setStreamingState(true);
+
+                    // Display buffered stream content if available
+                    if (activeTab.currentStreamMessage) {
+                        startStreamingMessage();
+                        appendToStreamingMessage(activeTab.currentStreamMessage);
+                    }
+                }
+            }
+
+            console.log('TabManager: State restored, active tab:', targetTabId);
+
+        } catch (err) {
+            console.error('TabManager.handleFullStateResponse error:', err);
+            // Fallback: create initial tab on error
+            if (this.tabs.size === 0) {
+                this.createTab(true);
+            }
+        }
+    },
+
+    /**
+     * Restore a single tab from Python state data
+     * @param {Object} tabData - Tab state from Python
+     */
+    _restoreTabFromState: function(tabData) {
+        // Normalize field names (Python uses camelCase in to_dict)
+        var tabState = {
+            id: tabData.tabId || tabData.id,
+            label: tabData.label || 'Chat',
+            messages: tabData.messages || [],
+            isStreaming: tabData.isStreaming || false,
+            currentStreamMessage: tabData.currentStreamMessage || '',
+            sessionId: null,
+            status: tabData.status || 'ready',
+            unreadCount: tabData.unreadCount || 0,
+            domSnapshot: '',  // Will be rebuilt from messages
+            scrollPosition: tabData.scrollPosition || 0
+        };
+
+        // Store in local map
+        this.tabs.set(tabState.id, tabState);
+
+        // Create DOM element
+        this._createTabElement(tabState);
+    },
+
+    /**
+     * Save current tab's state to local cache
+     */
+    _saveCurrentTabState: function() {
+        if (!this.activeTabId) return;
+
+        var currentTab = this.tabs.get(this.activeTabId);
+        var history = document.getElementById('message-history');
+
+        if (currentTab && history) {
+            currentTab.domSnapshot = history.innerHTML;
+            currentTab.scrollPosition = history.scrollTop;
+            currentTab.messages = window.chatState.messages.slice();
+        }
+    },
+
+    /**
+     * Sync current scroll position to Python
+     */
+    _syncScrollPositionToPython: function() {
+        if (!this.activeTabId || !window.matlabBridge) return;
+
+        var history = document.getElementById('message-history');
+        if (history) {
+            window.matlabBridge.sendEventToMATLAB('saveScrollPosition', {
+                tabId: this.activeTabId,
+                scrollPosition: history.scrollTop,
+                timestamp: Date.now()
+            });
         }
     },
 
     /**
      * Create a new tab
-     * @param {boolean} isInitial - True if this is the first tab (skip MATLAB notification)
+     * @param {boolean} skipMatlabNotify - True to skip notifying MATLAB (used during restore)
      * @returns {string} The new tab's ID
      */
-    createTab: function(isInitial) {
+    createTab: function(skipMatlabNotify) {
         var tabId = 'tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
         var tabNumber = this.nextTabNumber++;
         var label = 'Chat ' + tabNumber;
 
-        // Create tab state
+        // Create tab state (local cache)
         var tabState = {
             id: tabId,
             label: label,
@@ -1751,10 +2106,11 @@ var TabManager = {
         this._createTabElement(tabState);
 
         // Switch to the new tab
-        this.switchTab(tabId, isInitial);
+        this.switchTab(tabId, skipMatlabNotify);
 
-        // Notify MATLAB (unless initial tab)
-        if (!isInitial && window.matlabBridge) {
+        // Notify Python (source of truth) about the new tab
+        // This ensures Python has the tab even if JS gets regenerated
+        if (window.matlabBridge) {
             window.matlabBridge.sendEventToMATLAB('createSession', {
                 tabId: tabId,
                 label: label,
@@ -1915,19 +2271,21 @@ var TabManager = {
 
     /**
      * Switch to a different tab
-     * @param {string} tabId
-     * @param {boolean} isInitial - True if this is during initialization
+     * @param {string} tabId - Tab to switch to
+     * @param {boolean} skipMatlabNotify - True to skip notifying MATLAB (used during restore)
      */
-    switchTab: function(tabId, isInitial) {
+    switchTab: function(tabId, skipMatlabNotify) {
         var newTabState = this.tabs.get(tabId);
         if (!newTabState) return;
 
         var history = document.getElementById('message-history');
         if (!history) return;
 
+        var fromTabId = this.activeTabId;
+
         // Save current tab's state before switching
-        if (this.activeTabId && this.activeTabId !== tabId) {
-            var oldTabState = this.tabs.get(this.activeTabId);
+        if (fromTabId && fromTabId !== tabId) {
+            var oldTabState = this.tabs.get(fromTabId);
             if (oldTabState) {
                 // Save DOM snapshot and scroll position
                 oldTabState.domSnapshot = history.innerHTML;
@@ -1938,8 +2296,17 @@ var TabManager = {
                 oldTabState.isStreaming = window.chatState.isStreaming;
                 oldTabState.currentStreamMessage = window.chatState.currentStreamMessage || '';
 
+                // Notify Python of scroll position for the old tab (source of truth sync)
+                if (window.matlabBridge) {
+                    window.matlabBridge.sendEventToMATLAB('saveScrollPosition', {
+                        tabId: fromTabId,
+                        scrollPosition: history.scrollTop,
+                        timestamp: Date.now()
+                    });
+                }
+
                 // Update old tab's visual state
-                var oldTabEl = document.getElementById('session-tab-' + this.activeTabId);
+                var oldTabEl = document.getElementById('session-tab-' + fromTabId);
                 if (oldTabEl) {
                     oldTabEl.classList.remove('active');
                 }
@@ -1959,15 +2326,23 @@ var TabManager = {
         newTabState.unreadCount = 0;
         this._updateBadge(tabId);
 
-        // Restore new tab's content
-        if (newTabState.domSnapshot) {
+        // Restore new tab's content - prefer messages array over domSnapshot for reliability
+        if (newTabState.messages && newTabState.messages.length > 0) {
+            // Rebuild from messages array (more reliable than domSnapshot after regeneration)
+            this.rebuildFromMessages(newTabState.messages);
+            // Restore scroll position after content is rendered
+            if (newTabState.scrollPosition > 0) {
+                var self = this;
+                setTimeout(function() {
+                    history.scrollTop = newTabState.scrollPosition;
+                }, 50);
+            }
+        } else if (newTabState.domSnapshot) {
+            // Use DOM snapshot as secondary fallback
             history.innerHTML = newTabState.domSnapshot;
             history.scrollTop = newTabState.scrollPosition;
-        } else if (newTabState.messages && newTabState.messages.length > 0) {
-            // Fallback: rebuild DOM from messages array when domSnapshot is unavailable
-            this.rebuildFromMessages(newTabState.messages);
-        } else if (!isInitial) {
-            // Fresh tab with no content yet
+        } else {
+            // Fresh tab with no content yet - show welcome message
             history.innerHTML = '';
             showWelcomeMessage();
         }
@@ -1981,10 +2356,26 @@ var TabManager = {
         // Update streaming state UI
         setStreamingState(newTabState.isStreaming);
 
-        // Notify MATLAB (unless initial)
-        if (!isInitial && window.matlabBridge) {
+        // Handle streaming recovery if tab was streaming when JS context was lost
+        if (newTabState.isStreaming && newTabState.currentStreamMessage) {
+            // Resume streaming display with buffered content
+            startStreamingMessage();
+            appendToStreamingMessage(newTabState.currentStreamMessage);
+        }
+
+        // Notify MATLAB (unless during restore from Python state)
+        if (!skipMatlabNotify && window.matlabBridge) {
+            var fromScrollPos = 0;
+            if (fromTabId) {
+                var fromTab = this.tabs.get(fromTabId);
+                if (fromTab) {
+                    fromScrollPos = fromTab.scrollPosition || 0;
+                }
+            }
             window.matlabBridge.sendEventToMATLAB('switchSession', {
                 tabId: tabId,
+                fromTabId: fromTabId || '',
+                scrollPosition: fromScrollPos,
                 timestamp: Date.now()
             });
         }

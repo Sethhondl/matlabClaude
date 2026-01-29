@@ -18,7 +18,6 @@ classdef ChatUIController < handle
         PythonBridge        % Python MatlabBridge instance
         CodeExecutor        % Reference to CodeExecutor (MATLAB-side)
         WorkspaceProvider   % Reference to WorkspaceContextProvider
-        SessionManager      % Manages multiple chat sessions (tabs)
         HTMLComponent       % uihtml component
         IsReady = false     % Whether UI has initialized
         PollingTimer        % Timer for polling async responses
@@ -60,7 +59,6 @@ classdef ChatUIController < handle
             obj.PythonBridge = pythonBridge;
             obj.CodeExecutor = derivux.CodeExecutor();
             obj.WorkspaceProvider = derivux.WorkspaceContextProvider();
-            obj.SessionManager = derivux.SessionManager(pythonBridge);
             obj.Logger = derivux.logging.Logger.getInstance();
 
             obj.createUI();
@@ -109,6 +107,16 @@ classdef ChatUIController < handle
             obj.updateStatus('streaming', 'Claude is thinking...');
             obj.sendToJS('startStreaming', struct());
 
+            % Update streaming state in Python (source of truth)
+            if ~isempty(obj.PythonBridge) && ~isempty(obj.InitiatingTabId)
+                try
+                    obj.PythonBridge.update_streaming_state(obj.InitiatingTabId, true, '');
+                catch ME
+                    obj.Logger.warn('ChatUIController', 'update_streaming_state_error', struct(...
+                        'error', ME.message));
+                end
+            end
+
             obj.Logger.info('ChatUIController', 'stream_started', struct(), ...
                 'TraceId', obj.CurrentTraceId);
         end
@@ -119,6 +127,19 @@ classdef ChatUIController < handle
             obj.CurrentStreamText = [obj.CurrentStreamText, chunk];
             obj.StreamChunkCount = obj.StreamChunkCount + 1;
             obj.sendToJS('streamChunk', struct('text', chunk));
+
+            % Periodically sync stream text to Python (every 10 chunks)
+            % This allows recovery if JS context is lost mid-stream
+            if mod(obj.StreamChunkCount, 10) == 0
+                if ~isempty(obj.PythonBridge) && ~isempty(obj.InitiatingTabId)
+                    try
+                        obj.PythonBridge.update_streaming_state(...
+                            obj.InitiatingTabId, true, obj.CurrentStreamText);
+                    catch
+                        % Ignore sync errors - not critical
+                    end
+                end
+            end
 
             % Log at TRACE level to avoid log bloat
             obj.Logger.trace('ChatUIController', 'stream_chunk', struct(...
@@ -131,11 +152,24 @@ classdef ChatUIController < handle
             %ENDSTREAMING Signal end of streaming response
 
             responseLength = strlength(obj.CurrentStreamText);
+            tabIdForPersist = obj.InitiatingTabId;  % Capture before clearing
 
             if ~isempty(obj.CurrentStreamText)
                 % Store in history without sending to UI (JS finalizeStreamingMessage handles UI)
                 msg = struct('role', 'assistant', 'content', obj.CurrentStreamText, 'timestamp', now);
                 obj.Messages{end+1} = msg;
+
+                % Persist assistant message to Python state (source of truth)
+                if ~isempty(obj.PythonBridge) && ~isempty(tabIdForPersist)
+                    try
+                        obj.PythonBridge.add_message(tabIdForPersist, 'assistant', obj.CurrentStreamText, py.list({}));
+                        % Also update streaming state to false
+                        obj.PythonBridge.update_streaming_state(tabIdForPersist, false, '');
+                    catch ME
+                        obj.Logger.warn('ChatUIController', 'persist_assistant_message_error', struct(...
+                            'error', ME.message));
+                    end
+                end
             end
             obj.IsStreaming = false;
             obj.CurrentStreamText = '';
@@ -150,6 +184,9 @@ classdef ChatUIController < handle
 
             % Clear initiating tab ID after completion
             obj.InitiatingTabId = '';
+
+            % Check for pending interventions (e.g., execution intent in Plan mode)
+            obj.checkForPendingIntervention();
         end
 
         function sendError(obj, message)
@@ -265,6 +302,22 @@ classdef ChatUIController < handle
                     case 'interruptRequest'
                         obj.handleInterruptRequest(eventData);
 
+                    % Tab state persistence events (Python as source of truth)
+                    case 'requestFullState'
+                        obj.handleRequestFullState(eventData);
+
+                    case 'saveScrollPosition'
+                        obj.handleSaveScrollPosition(eventData);
+
+                    case 'addMessageToState'
+                        obj.handleAddMessageToState(eventData);
+
+                    case 'updateStreamingState'
+                        obj.handleUpdateStreamingState(eventData);
+
+                    case 'dismissIntervention'
+                        obj.handleDismissIntervention(eventData);
+
                     otherwise
                         warning('ChatUIController:UnknownEvent', ...
                             'Unknown JS event: %s', eventName);
@@ -312,6 +365,16 @@ classdef ChatUIController < handle
 
             % Add user message to history
             obj.addMessage('user', message);
+
+            % Persist user message to Python state (source of truth)
+            if ~isempty(obj.PythonBridge) && ~isempty(obj.InitiatingTabId)
+                try
+                    obj.PythonBridge.add_message(obj.InitiatingTabId, 'user', message, py.list({}));
+                catch ME
+                    obj.Logger.warn('ChatUIController', 'add_message_to_state_error', struct(...
+                        'error', ME.message));
+                end
+            end
 
             % Notify via event
             notify(obj, 'MessageSent');
@@ -655,6 +718,11 @@ classdef ChatUIController < handle
             if ~isempty(obj.PythonBridge)
                 try
                     obj.PythonBridge.clear_conversation();
+
+                    % Also clear tab state in Python (source of truth)
+                    if ~isempty(tabId)
+                        obj.PythonBridge.clear_tab(tabId);
+                    end
                 catch ME
                     warning('ChatUIController:ClearError', ...
                         'Error clearing Python conversation: %s', ME.message);
@@ -706,7 +774,7 @@ classdef ChatUIController < handle
                     'logLevel', 'INFO', ...
                     'logSensitiveData', true, ...
                     'headlessMode', true, ...
-                    'maxPollingDuration', 600, ...
+                    'maxPollingDuration', 86400, ...
                     'allowBypassModeCycling', false, ...
                     'authMethod', 'subscription', ...
                     'hasApiKey', false, ...
@@ -1063,6 +1131,7 @@ classdef ChatUIController < handle
             %HANDLECREATESESSION Handle create session event from JavaScript
             %
             %   Called when user creates a new tab in the UI.
+            %   Creates tab in Python (source of truth for tab state).
 
             try
                 if ~isfield(eventData, 'tabId')
@@ -1070,13 +1139,21 @@ classdef ChatUIController < handle
                 end
 
                 tabId = char(eventData.tabId);
-                obj.SessionManager.createSession(tabId);
+                label = '';
+                if isfield(eventData, 'label')
+                    label = char(eventData.label);
+                end
+
+                % Create in Python (source of truth)
+                if ~isempty(obj.PythonBridge)
+                    obj.PythonBridge.create_tab(tabId, label);
+                end
 
                 obj.Logger.info('ChatUIController', 'session_created', struct(...
-                    'tabId', tabId));
+                    'tabId', tabId, 'label', label));
             catch ME
-                warning('ChatUIController:CreateSessionError', ...
-                    'Error creating session: %s', ME.message);
+                obj.Logger.warn('ChatUIController', 'create_session_error', struct(...
+                    'error', ME.message));
             end
         end
 
@@ -1084,6 +1161,7 @@ classdef ChatUIController < handle
             %HANDLECLOSESESSION Handle close session event from JavaScript
             %
             %   Called when user closes a tab in the UI.
+            %   Closes tab in Python (source of truth for tab state).
 
             try
                 if ~isfield(eventData, 'tabId')
@@ -1091,13 +1169,17 @@ classdef ChatUIController < handle
                 end
 
                 tabId = char(eventData.tabId);
-                obj.SessionManager.closeSession(tabId);
+
+                % Close in Python (source of truth)
+                if ~isempty(obj.PythonBridge)
+                    obj.PythonBridge.close_tab(tabId);
+                end
 
                 obj.Logger.info('ChatUIController', 'session_closed', struct(...
                     'tabId', tabId));
             catch ME
-                warning('ChatUIController:CloseSessionError', ...
-                    'Error closing session: %s', ME.message);
+                obj.Logger.warn('ChatUIController', 'close_session_error', struct(...
+                    'error', ME.message));
             end
         end
 
@@ -1105,6 +1187,7 @@ classdef ChatUIController < handle
             %HANDLESWITCHSESSION Handle switch session event from JavaScript
             %
             %   Called when user switches between tabs in the UI.
+            %   Switches tab in Python (source of truth for tab state).
 
             try
                 if ~isfield(eventData, 'tabId')
@@ -1112,13 +1195,26 @@ classdef ChatUIController < handle
                 end
 
                 tabId = char(eventData.tabId);
-                obj.SessionManager.switchSession(tabId);
+                fromTabId = '';
+                scrollPos = 0;
+
+                if isfield(eventData, 'fromTabId')
+                    fromTabId = char(eventData.fromTabId);
+                end
+                if isfield(eventData, 'scrollPosition')
+                    scrollPos = double(eventData.scrollPosition);
+                end
+
+                % Switch in Python (source of truth) with scroll position
+                if ~isempty(obj.PythonBridge)
+                    obj.PythonBridge.switch_tab(fromTabId, tabId, scrollPos);
+                end
 
                 obj.Logger.debug('ChatUIController', 'session_switched', struct(...
-                    'tabId', tabId));
+                    'tabId', tabId, 'fromTabId', fromTabId));
             catch ME
-                warning('ChatUIController:SwitchSessionError', ...
-                    'Error switching session: %s', ME.message);
+                obj.Logger.warn('ChatUIController', 'switch_session_error', struct(...
+                    'error', ME.message));
             end
         end
 
@@ -1183,6 +1279,199 @@ classdef ChatUIController < handle
                     'error', ME.message));
                 warning('ChatUIController:InterruptError', ...
                     'Error handling interrupt: %s', ME.message);
+            end
+        end
+
+        function handleRequestFullState(obj, ~)
+            %HANDLEREQUESTFULLSTATE Return complete tab state to JavaScript
+            %
+            %   Called by JavaScript on initialization to restore state after
+            %   uihtml component regeneration (resize, dock/undock).
+            %   Python is the source of truth for all tab state.
+
+            try
+                if isempty(obj.PythonBridge)
+                    obj.sendToJS('fullStateResponse', struct('tabs', {{}}, ...
+                        'activeTabId', '', 'nextTabNumber', 1));
+                    return;
+                end
+
+                % Get complete state from Python
+                pyState = obj.PythonBridge.get_all_tab_state();
+                matlabState = obj.pyDictToStruct(pyState);
+
+                % Convert Python list to MATLAB cell array
+                tabsList = {};
+                if isfield(matlabState, 'tabs')
+                    pyTabs = matlabState.tabs;
+                    if isa(pyTabs, 'py.list')
+                        tabsList = cell(pyTabs);
+                        % Convert each tab dict to struct
+                        for i = 1:length(tabsList)
+                            if isa(tabsList{i}, 'py.dict')
+                                tabsList{i} = obj.pyDictToStruct(tabsList{i});
+                            end
+                        end
+                    end
+                end
+
+                % Send to JavaScript
+                responseData = struct(...
+                    'tabs', {tabsList}, ...
+                    'activeTabId', char(matlabState.activeTabId), ...
+                    'nextTabNumber', double(matlabState.nextTabNumber));
+
+                obj.sendToJS('fullStateResponse', responseData);
+
+                obj.Logger.info('ChatUIController', 'full_state_sent', struct(...
+                    'tab_count', length(tabsList)));
+
+            catch ME
+                obj.Logger.error('ChatUIController', 'request_full_state_error', struct(...
+                    'error', ME.message));
+                % Send empty state on error (JS will create initial tab)
+                obj.sendToJS('fullStateResponse', struct('tabs', {{}}, ...
+                    'activeTabId', '', 'nextTabNumber', 1));
+            end
+        end
+
+        function handleSaveScrollPosition(obj, eventData)
+            %HANDLESAVESCROLLPOSITION Save scroll position for a tab
+            %
+            %   Called by JavaScript when user scrolls or switches tabs
+
+            try
+                if ~isfield(eventData, 'tabId') || ~isfield(eventData, 'scrollPosition')
+                    return;
+                end
+
+                tabId = char(eventData.tabId);
+                scrollPos = double(eventData.scrollPosition);
+
+                if ~isempty(obj.PythonBridge)
+                    obj.PythonBridge.save_scroll_position(tabId, scrollPos);
+                end
+            catch ME
+                obj.Logger.warn('ChatUIController', 'save_scroll_error', struct(...
+                    'error', ME.message));
+            end
+        end
+
+        function handleAddMessageToState(obj, eventData)
+            %HANDLEADDMESSAGETOSTATE Add a message to tab state in Python
+            %
+            %   Called by JavaScript when user sends a message or assistant responds
+
+            try
+                if ~isfield(eventData, 'tabId') || ~isfield(eventData, 'role') || ~isfield(eventData, 'content')
+                    return;
+                end
+
+                tabId = char(eventData.tabId);
+                role = char(eventData.role);
+                content = char(eventData.content);
+
+                % Get images if present
+                images = {};
+                if isfield(eventData, 'images')
+                    images = eventData.images;
+                end
+
+                if ~isempty(obj.PythonBridge)
+                    obj.PythonBridge.add_message(tabId, role, content, py.list(images));
+                end
+
+                obj.Logger.debug('ChatUIController', 'message_added_to_state', struct(...
+                    'tabId', tabId, 'role', role));
+
+            catch ME
+                obj.Logger.warn('ChatUIController', 'add_message_error', struct(...
+                    'error', ME.message));
+            end
+        end
+
+        function handleUpdateStreamingState(obj, eventData)
+            %HANDLEUPDATESTREAMINGSTATE Update streaming state in Python
+            %
+            %   Called by JavaScript during streaming to keep Python in sync
+
+            try
+                if ~isfield(eventData, 'tabId')
+                    return;
+                end
+
+                tabId = char(eventData.tabId);
+                isStreaming = false;
+                currentText = '';
+
+                if isfield(eventData, 'isStreaming')
+                    isStreaming = logical(eventData.isStreaming);
+                end
+                if isfield(eventData, 'currentText')
+                    currentText = char(eventData.currentText);
+                end
+
+                if ~isempty(obj.PythonBridge)
+                    obj.PythonBridge.update_streaming_state(tabId, isStreaming, currentText);
+                end
+
+            catch ME
+                obj.Logger.warn('ChatUIController', 'update_streaming_error', struct(...
+                    'error', ME.message));
+            end
+        end
+
+        function handleDismissIntervention(obj, ~)
+            %HANDLEDISMISSINTERVENTION Dismiss pending intervention in Python
+            %
+            %   Called by JavaScript when user cancels or dismisses the
+            %   execution intent modal without selecting a mode.
+
+            try
+                if ~isempty(obj.PythonBridge)
+                    obj.PythonBridge.dismiss_intervention();
+                    obj.Logger.debug('ChatUIController', 'intervention_dismissed');
+                end
+            catch ME
+                obj.Logger.warn('ChatUIController', 'dismiss_intervention_error', struct(...
+                    'error', ME.message));
+            end
+        end
+
+        function checkForPendingIntervention(obj)
+            %CHECKFORPENDINGINTERVENTION Check if there's an execution intent intervention
+            %
+            %   Called after streaming completes to check for pending
+            %   interventions (specifically execution_intent in Plan mode).
+
+            try
+                if isempty(obj.PythonBridge)
+                    return;
+                end
+
+                % Get pending intervention from Python
+                intervention = obj.PythonBridge.get_pending_intervention();
+
+                if ~isempty(intervention)
+                    intervention = obj.pyDictToStruct(intervention);
+
+                    % Only handle execution_intent type
+                    if isfield(intervention, 'type') && strcmp(char(intervention.type), 'execution_intent')
+                        obj.Logger.info('ChatUIController', 'execution_intent_detected', struct(...
+                            'confidence', intervention.confidence));
+
+                        % Send prompt to JavaScript
+                        obj.sendToJS('executionIntentPrompt', struct(...
+                            'type', char(intervention.type), ...
+                            'message', char(intervention.message), ...
+                            'confidence', intervention.confidence, ...
+                            'suggested_mode', char(intervention.suggested_mode)));
+                    end
+                end
+
+            catch ME
+                obj.Logger.warn('ChatUIController', 'check_intervention_error', struct(...
+                    'error', ME.message));
             end
         end
 
