@@ -23,7 +23,7 @@ classdef Settings < handle
         allowDestructiveOps = false         % Allow delete, rmdir, etc.
 
         % Claude Settings
-        model = 'claude-sonnet-4-5-20250514'  % Claude model ID
+        model = 'claude-sonnet-4-5'  % Claude model ID (alias)
         claudePath = 'claude'               % Path to Claude CLI
         defaultAllowedTools = {'Edit', 'Write', 'Read', 'Bash', 'Glob', 'Grep'}
 
@@ -43,7 +43,7 @@ classdef Settings < handle
         headlessMode = true                 % Suppress figure/model pop-up windows
 
         % Timeout Settings
-        maxPollingDuration = 600            % Max total polling duration in seconds (10 min ceiling)
+        maxPollingDuration = 86400          % Max total polling duration in seconds (24 hours - effectively no timeout)
 
         % Authentication Settings
         authMethod = 'subscription'         % 'subscription' or 'api_key'
@@ -55,9 +55,9 @@ classdef Settings < handle
     properties (Constant, Access = private)
         SETTINGS_FILE = 'derivux_settings.json'
         VALID_MODELS = {...
-            'claude-sonnet-4-5-20250514', ...
-            'claude-opus-4-5-20250514', ...
-            'claude-haiku-4-5-20250514'}
+            'claude-sonnet-4-5', ...
+            'claude-opus-4-5', ...
+            'claude-haiku-4-5'}
     end
 
     methods
@@ -160,6 +160,11 @@ classdef Settings < handle
                     jsonStr = fileread(settingsPath);
                     s = jsondecode(jsonStr);
 
+                    % Migrate old model IDs to aliases
+                    if isfield(s, 'model')
+                        s.model = derivux.config.Settings.migrateModelId(s.model);
+                    end
+
                     % Apply loaded values
                     props = properties(settings);
                     fields = fieldnames(s);
@@ -175,6 +180,28 @@ classdef Settings < handle
                     warning('Settings:LoadError', ...
                         'Could not load settings: %s', ME.message);
                 end
+            end
+        end
+
+        function alias = migrateModelId(modelId)
+            %MIGRATEMODELID Convert old date-stamped model IDs to aliases
+            %
+            %   Old format: claude-sonnet-4-5-20250514
+            %   New format: claude-sonnet-4-5 (alias)
+
+            % Map of old IDs to aliases
+            migrations = containers.Map(...
+                {'claude-sonnet-4-5-20250514', 'claude-sonnet-4-5-20250929', ...
+                 'claude-opus-4-5-20250514', 'claude-opus-4-5-20251101', ...
+                 'claude-haiku-4-5-20250514', 'claude-haiku-4-5-20251001'}, ...
+                {'claude-sonnet-4-5', 'claude-sonnet-4-5', ...
+                 'claude-opus-4-5', 'claude-opus-4-5', ...
+                 'claude-haiku-4-5', 'claude-haiku-4-5'});
+
+            if migrations.isKey(modelId)
+                alias = migrations(modelId);
+            else
+                alias = modelId;
             end
         end
     end

@@ -21,7 +21,7 @@ from claude_agent_sdk import (
 from .logger import get_logger
 
 if TYPE_CHECKING:
-    from .agents.specialized_agent import AgentConfig
+    from .config.markdown import AgentDefinition
 
 
 def find_claude_cli() -> Optional[str]:
@@ -215,11 +215,6 @@ class MatlabAgent:
             tools=all_tools
         )
 
-        # Use custom allowed tools if provided
-        if self._custom_allowed_tools is not None:
-            self.allowed_tools = self._custom_allowed_tools.copy()
-            return
-
         # Tools that modify state (blocked in plan mode)
         execution_tools = [
             "mcp__matlab__matlab_execute",
@@ -236,6 +231,26 @@ class MatlabAgent:
             "mcp__matlab__file_read",
             "mcp__matlab__file_list",
         ]
+
+        # Handle custom allowed tools
+        # In plan mode, filter out execution tools even from custom configs
+        if self._custom_allowed_tools is not None:
+            if self.execution_mode == 'plan':
+                # Filter out execution tools and Write from custom config
+                blocked_in_plan = set(execution_tools + ["Write"])
+                self.allowed_tools = [
+                    tool for tool in self._custom_allowed_tools
+                    if tool not in blocked_in_plan
+                ]
+                self._logger.info("MatlabAgent", "plan_mode_tools", {
+                    "execution_mode": self.execution_mode,
+                    "allowed_tools": len(self.allowed_tools),
+                    "blocked_tools": len(self._custom_allowed_tools) - len(self.allowed_tools),
+                    "from_config": True
+                })
+            else:
+                self.allowed_tools = self._custom_allowed_tools.copy()
+            return
 
         # Build allowed tools list based on execution mode
         if self.execution_mode == 'plan':
@@ -287,31 +302,6 @@ class MatlabAgent:
             options.model = self.model
 
         return options
-
-    @classmethod
-    def from_config(cls, config: 'AgentConfig') -> 'MatlabAgent':
-        """Create a MatlabAgent from an AgentConfig.
-
-        This factory method creates an agent with custom system prompt,
-        restricted tools, and optional extended thinking budget.
-
-        Args:
-            config: AgentConfig specifying agent behavior
-
-        Returns:
-            Configured MatlabAgent instance
-
-        Example:
-            from derivux.agents.agent_configs import GIT_AGENT_CONFIG
-            agent = MatlabAgent.from_config(GIT_AGENT_CONFIG)
-        """
-        return cls(
-            system_prompt=config.system_prompt,
-            include_file_tools=False,  # Use custom_allowed_tools instead
-            max_turns=None,
-            thinking_budget=config.thinking_budget,
-            custom_allowed_tools=config.allowed_tools,
-        )
 
     async def start(self) -> None:
         """Start the agent client and connect to MATLAB.
