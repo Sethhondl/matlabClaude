@@ -170,10 +170,25 @@ class SessionProcessor:
                 "agent": self._current_agent.name if self._current_agent else "",
                 "turns": self._turn_count,
             })
-            await self._client.__aexit__(None, None, None)
-            self._client = None
-            self._current_agent = None
-            self._turn_count = 0
+            try:
+                # Add timeout to prevent hanging on SDK cleanup
+                await asyncio.wait_for(
+                    self._client.__aexit__(None, None, None),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                self._logger.warn("SessionProcessor", "stop_timeout", {
+                    "agent": self._current_agent.name if self._current_agent else "",
+                })
+            except Exception as e:
+                self._logger.warn("SessionProcessor", "stop_error", {
+                    "error": str(e),
+                })
+            finally:
+                # Always clean up state, even if __aexit__ fails
+                self._client = None
+                self._current_agent = None
+                self._turn_count = 0
 
     async def query(self, prompt: str) -> AsyncIterator[Dict[str, Any]]:
         """Send a query and stream response content.

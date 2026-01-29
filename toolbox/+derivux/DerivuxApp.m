@@ -214,12 +214,18 @@ classdef DerivuxApp < handle
                     'error', ME.message));
             end
 
-            % Sync execution mode from settings to Python
-            % This ensures Plan mode is enforced from startup if saved
+            % Sync agent-based settings from MATLAB to Python
+            % This ensures the correct agent and global settings are active from startup
             try
-                obj.PythonBridge.set_execution_mode(char(obj.Settings.codeExecutionMode));
+                % Switch to the saved agent
+                if strcmp(obj.Settings.agent, 'plan')
+                    obj.PythonBridge.toggle_primary_agent();  % Assuming default is build
+                end
+                % Apply global settings
+                obj.PythonBridge.set_auto_execute(logical(obj.Settings.autoExecute));
+                obj.PythonBridge.set_bypass_mode(logical(obj.Settings.bypassMode));
             catch ME
-                obj.Logger.warn('DerivuxApp', 'python_execution_mode_sync_failed', struct(...
+                obj.Logger.warn('DerivuxApp', 'python_settings_sync_failed', struct(...
                     'error', ME.message));
             end
 

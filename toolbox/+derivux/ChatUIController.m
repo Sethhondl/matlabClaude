@@ -318,6 +318,16 @@ classdef ChatUIController < handle
                     case 'dismissIntervention'
                         obj.handleDismissIntervention(eventData);
 
+                    % New agent-based architecture events
+                    case 'toggleAgent'
+                        obj.handleToggleAgent(eventData);
+
+                    case 'setAutoExecute'
+                        obj.handleSetAutoExecute(eventData);
+
+                    case 'setBypassMode'
+                        obj.handleSetBypassMode(eventData);
+
                     otherwise
                         warning('ChatUIController:UnknownEvent', ...
                             'Unknown JS event: %s', eventName);
@@ -579,11 +589,11 @@ classdef ChatUIController < handle
         function onRunCode(obj, data)
             %ONRUNCODE Handle code execution request
             %
-            %   Execution behavior depends on the current execution mode:
-            %   - 'plan': No execution (blocked at UI level, but safety check here)
-            %   - 'prompt': Always prompts for approval before execution
-            %   - 'auto': Smart auto-execute - safe code runs, dangerous prompts
-            %   - 'bypass': No restrictions - all code executes without checks
+            %   Execution behavior depends on agent and global settings:
+            %   - Plan agent: No execution (blocked)
+            %   - Build agent: Execution allowed
+            %   - autoExecute: If true, skip approval prompts
+            %   - bypassMode: If true, disable all security blocks
 
             code = data.code;
             startTime = tic;
@@ -592,61 +602,59 @@ classdef ChatUIController < handle
                 'code_length', strlength(code), ...
                 'block_id', data.blockId));
 
-            % Load current execution mode from Settings
+            % Load current settings
             try
                 settings = derivux.config.Settings.load();
-                mode = char(settings.codeExecutionMode);
+                agent = char(settings.agent);
+                autoExecute = logical(settings.autoExecute);
+                bypassMode = logical(settings.bypassMode);
             catch
-                mode = 'prompt';  % Default to safest mode
+                agent = 'build';
+                autoExecute = false;
+                bypassMode = false;
             end
 
-            % Configure CodeExecutor based on execution mode
-            switch mode
-                case 'plan'
-                    % Plan mode: shouldn't reach here, but block if it does
-                    obj.Logger.warn('ChatUIController', 'code_execution_blocked_plan_mode');
-                    obj.sendToJS('codeResult', struct(...
-                        'success', false, ...
-                        'output', 'Code execution is disabled in Plan mode. Switch to Normal, Auto, or Bypass mode to execute code.', ...
-                        'blockId', data.blockId));
-                    return;
+            % Check agent - Plan agent cannot execute code
+            if strcmp(agent, 'plan')
+                obj.Logger.warn('ChatUIController', 'code_execution_blocked_plan_agent');
+                obj.sendToJS('codeResult', struct(...
+                    'success', false, ...
+                    'output', 'Code execution is disabled in Plan mode. Press Tab to switch to Build agent.', ...
+                    'blockId', data.blockId));
+                return;
+            end
 
-                case 'prompt'
-                    % Prompt mode: always require approval
-                    obj.CodeExecutor.RequireApproval = true;
-                    obj.CodeExecutor.BypassMode = false;
-                    obj.CodeExecutor.AllowSystemCommands = false;
-                    obj.CodeExecutor.AllowDestructiveOps = false;
+            % Configure CodeExecutor based on settings
+            if bypassMode
+                % Bypass mode: DANGEROUS - no restrictions
+                obj.CodeExecutor.RequireApproval = false;
+                obj.CodeExecutor.BypassMode = true;
+                obj.CodeExecutor.AllowSystemCommands = true;
+                obj.CodeExecutor.AllowDestructiveOps = true;
 
-                case 'auto'
-                    % Auto mode: smart execution - only prompt for dangerous code
-                    isDangerous = obj.CodeExecutor.preValidateCode(code);
-                    obj.CodeExecutor.RequireApproval = isDangerous;
-                    obj.CodeExecutor.BypassMode = false;
-                    obj.CodeExecutor.AllowSystemCommands = false;
-                    obj.CodeExecutor.AllowDestructiveOps = false;
+                obj.Logger.warn('ChatUIController', 'bypass_mode_execution', struct(...
+                    'block_id', data.blockId, ...
+                    'code_length', strlength(code)));
 
-                    if isDangerous
-                        obj.Logger.info('ChatUIController', 'auto_mode_dangerous_code', struct(...
-                            'block_id', data.blockId, ...
-                            'prompting', true));
-                    end
+            elseif autoExecute
+                % Auto-execute: skip approval for safe code, prompt for dangerous
+                isDangerous = obj.CodeExecutor.preValidateCode(code);
+                obj.CodeExecutor.RequireApproval = isDangerous;
+                obj.CodeExecutor.BypassMode = false;
+                obj.CodeExecutor.AllowSystemCommands = false;
+                obj.CodeExecutor.AllowDestructiveOps = false;
 
-                case 'bypass'
-                    % Bypass mode: DANGEROUS - no restrictions
-                    obj.CodeExecutor.RequireApproval = false;
-                    obj.CodeExecutor.BypassMode = true;
-                    obj.CodeExecutor.AllowSystemCommands = true;
-                    obj.CodeExecutor.AllowDestructiveOps = true;
-
-                    obj.Logger.warn('ChatUIController', 'bypass_mode_execution', struct(...
+                if isDangerous
+                    obj.Logger.info('ChatUIController', 'auto_execute_dangerous_code', struct(...
                         'block_id', data.blockId, ...
-                        'code_length', strlength(code)));
-
-                otherwise
-                    % Unknown mode - default to safest behavior
-                    obj.CodeExecutor.RequireApproval = true;
-                    obj.CodeExecutor.BypassMode = false;
+                        'prompting', true));
+                end
+            else
+                % Normal mode: always require approval
+                obj.CodeExecutor.RequireApproval = true;
+                obj.CodeExecutor.BypassMode = false;
+                obj.CodeExecutor.AllowSystemCommands = false;
+                obj.CodeExecutor.AllowDestructiveOps = false;
             end
 
             % Execute the code (stays in MATLAB)
@@ -760,7 +768,10 @@ classdef ChatUIController < handle
                     'allowBypassModeCycling', logical(settings.allowBypassModeCycling), ...
                     'authMethod', authInfo.authMethod, ...
                     'hasApiKey', authInfo.hasApiKey, ...
-                    'apiKeyMasked', authInfo.apiKeyMasked);
+                    'apiKeyMasked', authInfo.apiKeyMasked, ...
+                    'agent', char(settings.agent), ...
+                    'autoExecute', logical(settings.autoExecute), ...
+                    'bypassMode', logical(settings.bypassMode));
                 obj.sendToJS('loadSettings', settingsStruct);
             catch ME
                 % Send default settings if loading fails
@@ -778,7 +789,10 @@ classdef ChatUIController < handle
                     'allowBypassModeCycling', false, ...
                     'authMethod', 'subscription', ...
                     'hasApiKey', false, ...
-                    'apiKeyMasked', '');
+                    'apiKeyMasked', '', ...
+                    'agent', 'build', ...
+                    'autoExecute', false, ...
+                    'bypassMode', false);
                 obj.sendToJS('loadSettings', defaultSettings);
             end
         end
@@ -816,6 +830,17 @@ classdef ChatUIController < handle
                 end
                 if isfield(data, 'allowBypassModeCycling')
                     settings.allowBypassModeCycling = data.allowBypassModeCycling;
+                end
+
+                % New agent-based architecture settings
+                if isfield(data, 'agent')
+                    settings.agent = data.agent;
+                end
+                if isfield(data, 'autoExecute')
+                    settings.autoExecute = data.autoExecute;
+                end
+                if isfield(data, 'bypassMode')
+                    settings.bypassMode = data.bypassMode;
                 end
 
                 settings.save();
@@ -1074,16 +1099,11 @@ classdef ChatUIController < handle
         end
 
         function handleSetExecutionMode(obj, data)
-            %HANDLESETEXECUTIONMODE Handle execution mode change from UI
+            %HANDLESETEXECUTIONMODE DEPRECATED - Handle legacy execution mode change
             %
-            %   This handles the setExecutionMode event from JavaScript when
-            %   the user clicks the status bar indicator or changes the dropdown.
-            %
-            %   Modes:
-            %   - 'plan': Interview/planning mode - no code execution
-            %   - 'prompt': Normal mode - prompts before each code execution
-            %   - 'auto': Auto mode - executes automatically (security blocks active)
-            %   - 'bypass': DANGEROUS - removes all restrictions
+            %   This method is kept for backward compatibility. New code should
+            %   use the agent-based architecture with toggleAgent, setAutoExecute,
+            %   and setBypassMode events instead.
 
             try
                 if ~isfield(data, 'mode')
@@ -1091,32 +1111,50 @@ classdef ChatUIController < handle
                 end
 
                 mode = char(data.mode);
-
-                % Save to settings
                 settings = derivux.config.Settings.load();
-                settings.codeExecutionMode = mode;
-                settings.save();
 
-                % Log warning for dangerous modes
-                if strcmp(mode, 'bypass')
+                % Map old modes to new architecture
+                if strcmp(mode, 'plan')
+                    settings.agent = 'plan';
+                    settings.autoExecute = false;
+                    settings.bypassMode = false;
+                elseif strcmp(mode, 'prompt')
+                    settings.agent = 'build';
+                    settings.autoExecute = false;
+                    settings.bypassMode = false;
+                elseif strcmp(mode, 'auto')
+                    settings.agent = 'build';
+                    settings.autoExecute = true;
+                    settings.bypassMode = false;
+                elseif strcmp(mode, 'bypass')
+                    settings.agent = 'build';
+                    settings.autoExecute = true;
+                    settings.bypassMode = true;
+
                     obj.Logger.warn('ChatUIController', 'bypass_mode_enabled', struct(...
                         'warning', 'ALL SAFETY RESTRICTIONS DISABLED'));
-                elseif strcmp(mode, 'auto')
-                    obj.Logger.info('ChatUIController', 'auto_mode_enabled', struct(...
-                        'note', 'Auto-execution enabled, security blocks still active'));
-                else
-                    obj.Logger.info('ChatUIController', 'execution_mode_changed', struct(...
-                        'mode', mode));
                 end
 
-                % Update Python bridge with new mode (if method exists)
+                settings.save();
+
+                % Update Python bridge with new settings
                 if ~isempty(obj.PythonBridge)
                     try
-                        obj.PythonBridge.set_execution_mode(mode);
+                        if strcmp(mode, 'plan')
+                            obj.PythonBridge.toggle_primary_agent();
+                        end
+                        obj.PythonBridge.set_auto_execute(settings.autoExecute);
+                        obj.PythonBridge.set_bypass_mode(settings.bypassMode);
                     catch
-                        % Method may not exist yet - that's OK
+                        % Methods may not exist yet - that's OK
                     end
                 end
+
+                obj.Logger.info('ChatUIController', 'legacy_execution_mode_mapped', struct(...
+                    'mode', mode, ...
+                    'agent', settings.agent, ...
+                    'autoExecute', settings.autoExecute, ...
+                    'bypassMode', settings.bypassMode));
 
                 % Update status bar
                 obj.updateStatusBar();
@@ -1124,6 +1162,125 @@ classdef ChatUIController < handle
             catch ME
                 warning('ChatUIController:SetExecutionModeError', ...
                     'Error setting execution mode: %s', ME.message);
+            end
+        end
+
+        function handleToggleAgent(obj, eventData)
+            %HANDLETOGGLEAGENT Handle agent toggle from UI (new architecture)
+            %
+            %   The JavaScript UI toggles locally and sends the NEW agent name.
+            %   We need to SWITCH to that agent (not toggle again, which would
+            %   cause a double-toggle).
+
+            try
+                agentName = 'build';  % Default
+                if isfield(eventData, 'agent')
+                    agentName = char(eventData.agent);
+                end
+
+                % Switch Python to the specified agent (not toggle!)
+                % The UI already toggled, so we sync Python to match
+                if ~isempty(obj.PythonBridge)
+                    try
+                        % Use switch_agent to set the specific agent
+                        obj.PythonBridge.switch_agent(agentName);
+                    catch ME
+                        obj.Logger.warn('ChatUIController', 'switch_agent_python_error', struct(...
+                            'error', ME.message));
+                    end
+                end
+
+                % Save agent to settings
+                settings = derivux.config.Settings.load();
+                settings.agent = agentName;
+                settings.save();
+
+                obj.Logger.info('ChatUIController', 'agent_switched', struct(...
+                    'agent', agentName));
+
+                % Update status bar
+                obj.updateStatusBar();
+
+            catch ME
+                warning('ChatUIController:ToggleAgentError', ...
+                    'Error toggling agent: %s', ME.message);
+            end
+        end
+
+        function handleSetAutoExecute(obj, eventData)
+            %HANDLESETAUTOEXECUTE Handle auto-execute toggle from UI
+            %
+            %   When enabled, tools that require ASK permission are
+            %   automatically approved.
+
+            try
+                enabled = false;
+                if isfield(eventData, 'enabled')
+                    enabled = logical(eventData.enabled);
+                end
+
+                % Update Python bridge
+                if ~isempty(obj.PythonBridge)
+                    try
+                        obj.PythonBridge.set_auto_execute(enabled);
+                    catch ME
+                        obj.Logger.warn('ChatUIController', 'set_auto_execute_python_error', struct(...
+                            'error', ME.message));
+                    end
+                end
+
+                % Save to settings
+                settings = derivux.config.Settings.load();
+                settings.autoExecute = enabled;
+                settings.save();
+
+                obj.Logger.info('ChatUIController', 'auto_execute_changed', struct(...
+                    'enabled', enabled));
+
+            catch ME
+                warning('ChatUIController:SetAutoExecuteError', ...
+                    'Error setting auto-execute: %s', ME.message);
+            end
+        end
+
+        function handleSetBypassMode(obj, eventData)
+            %HANDLESETBYPASSMODE Handle bypass mode toggle from UI
+            %
+            %   When enabled, CodeExecutor security blocks are disabled.
+            %   This is DANGEROUS and should only be used when explicitly needed.
+
+            try
+                enabled = false;
+                if isfield(eventData, 'enabled')
+                    enabled = logical(eventData.enabled);
+                end
+
+                % Log warning for dangerous mode
+                if enabled
+                    obj.Logger.warn('ChatUIController', 'bypass_mode_enabled', struct(...
+                        'warning', 'ALL SAFETY RESTRICTIONS DISABLED'));
+                else
+                    obj.Logger.info('ChatUIController', 'bypass_mode_disabled');
+                end
+
+                % Update Python bridge
+                if ~isempty(obj.PythonBridge)
+                    try
+                        obj.PythonBridge.set_bypass_mode(enabled);
+                    catch ME
+                        obj.Logger.warn('ChatUIController', 'set_bypass_mode_python_error', struct(...
+                            'error', ME.message));
+                    end
+                end
+
+                % Save to settings
+                settings = derivux.config.Settings.load();
+                settings.bypassMode = enabled;
+                settings.save();
+
+            catch ME
+                warning('ChatUIController:SetBypassModeError', ...
+                    'Error setting bypass mode: %s', ME.message);
             end
         end
 
@@ -1711,9 +1868,11 @@ classdef ChatUIController < handle
                 % Get auth method
                 authMethod = derivux.config.CredentialStore.getAuthMethod();
 
-                % Get execution mode
+                % Get agent-based settings
                 settings = derivux.config.Settings.load();
-                executionMode = char(settings.codeExecutionMode);
+                agent = char(settings.agent);
+                autoExecute = logical(settings.autoExecute);
+                bypassMode = logical(settings.bypassMode);
 
                 % Send to UI
                 obj.sendToJS('statusBarUpdate', struct(...
@@ -1723,7 +1882,9 @@ classdef ChatUIController < handle
                     'additions', gitInfo.additions, ...
                     'deletions', gitInfo.deletions, ...
                     'authMethod', authMethod, ...
-                    'executionMode', executionMode));
+                    'agent', agent, ...
+                    'autoExecute', autoExecute, ...
+                    'bypassMode', bypassMode));
 
             catch ME
                 obj.Logger.warn('ChatUIController', 'status_bar_update_failed', struct(...

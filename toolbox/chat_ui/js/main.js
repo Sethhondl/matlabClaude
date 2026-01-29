@@ -54,6 +54,10 @@ function setup(htmlComponent) {
         htmlComponent.addEventListener('fullStateResponse', handleFullStateResponse);
         htmlComponent.addEventListener('executionIntentPrompt', handleExecutionIntentPrompt);
 
+        // New architecture events
+        htmlComponent.addEventListener('agentUpdate', handleAgentUpdate);
+        htmlComponent.addEventListener('globalSettingsUpdate', handleGlobalSettingsUpdate);
+
         // Initialize UI event handlers
         initializeUI();
 
@@ -226,15 +230,15 @@ function initializeUI() {
     AuthManager.init();
 
     // Initialize execution mode manager
-    ExecutionModeManager.init();
+    AgentManager.init();
 
     // Initialize interrupt manager for double-ESC detection
     InterruptManager.init();
 
-    // Global keyboard shortcut: Backtick (`) to cycle execution modes
+    // Global keyboard shortcut: Tab to toggle agents (Build ↔ Plan)
     document.addEventListener('keydown', function(event) {
-        // Only trigger on backtick key
-        if (event.key !== '`') return;
+        // Only trigger on Tab key
+        if (event.key !== 'Tab') return;
 
         // Don't trigger if user is typing in an input/textarea
         var activeTag = document.activeElement.tagName.toLowerCase();
@@ -244,7 +248,7 @@ function initializeUI() {
         if (SettingsManager.isOpen) return;
 
         event.preventDefault();
-        ExecutionModeManager.cycleMode();
+        AgentManager.toggleAgent();
     });
 }
 
@@ -488,37 +492,60 @@ const SettingsManager = {
             this._bindChangeHandler('log-level-select');
             this._bindChangeHandler('log-sensitive-checkbox');
 
-            // Special handler for bypass cycling checkbox - shows warning when enabled
-            this._bindBypassCyclingCheckbox();
+            // Special handlers for new settings
+            this._bindAutoExecuteCheckbox();
+            this._bindBypassModeCheckbox();
         } catch (err) {
             console.error('SettingsManager.init error:', err);
         }
     },
 
     /**
-     * Bind special handler for bypass cycling checkbox with warning
+     * Bind handler for auto-execute checkbox
      */
-    _bindBypassCyclingCheckbox() {
-        var checkbox = document.getElementById('allow-bypass-cycling-checkbox');
+    _bindAutoExecuteCheckbox() {
+        var checkbox = document.getElementById('auto-execute-checkbox');
+        if (checkbox) {
+            checkbox.addEventListener('change', function() {
+                AgentManager.setAutoExecute(checkbox.checked);
+                SettingsManager.applySettings();
+
+                // Send to MATLAB
+                if (window.matlabBridge) {
+                    window.matlabBridge.sendEventToMATLAB('setAutoExecute', {
+                        enabled: checkbox.checked,
+                        timestamp: Date.now()
+                    });
+                }
+            });
+        }
+    },
+
+    /**
+     * Bind handler for bypass mode checkbox with warning
+     */
+    _bindBypassModeCheckbox() {
+        var checkbox = document.getElementById('bypass-mode-checkbox');
         if (checkbox) {
             checkbox.addEventListener('change', function() {
                 if (checkbox.checked) {
                     // Show warning when enabling
                     var confirmed = confirm(
-                        '⚠️ WARNING: Enable Bypass Mode Cycling\n\n' +
-                        'You are about to allow cycling to Bypass mode.\n\n' +
+                        '⚠️ WARNING: Enable Bypass Mode\n\n' +
                         'Bypass mode removes ALL safety restrictions:\n' +
-                        '• No approval prompts before code execution\n' +
                         '• Blocked functions (eval, delete, system) are ALLOWED\n' +
                         '• Destructive operations are permitted\n\n' +
-                        'Only enable this if you understand the risks.\n\n' +
-                        'Are you sure you want to allow bypass mode cycling?'
+                        'This is DANGEROUS and should only be used when you\n' +
+                        'fully trust all code being executed.\n\n' +
+                        'Are you sure you want to enable bypass mode?'
                     );
                     if (!confirmed) {
                         checkbox.checked = false;
                         return;
                     }
                 }
+
+                AgentManager.setBypassMode(checkbox.checked, true);  // Skip confirmation (already shown)
                 SettingsManager.applySettings();
             });
         }
@@ -614,14 +641,24 @@ const SettingsManager = {
                 logSensitiveCheckbox.checked = settings.logSensitiveData !== false;
             }
 
-            // Allow bypass mode cycling (default to false for safety)
-            const bypassCyclingCheckbox = document.getElementById('allow-bypass-cycling-checkbox');
-            if (bypassCyclingCheckbox) {
-                bypassCyclingCheckbox.checked = settings.allowBypassModeCycling === true;
+            // Auto-execute setting (default to false for safety)
+            const autoExecuteCheckbox = document.getElementById('auto-execute-checkbox');
+            if (autoExecuteCheckbox) {
+                autoExecuteCheckbox.checked = settings.autoExecute === true;
             }
 
-            // Update ExecutionModeManager with the bypass cycling setting
-            ExecutionModeManager.setBypassCyclingAllowed(settings.allowBypassModeCycling === true);
+            // Bypass mode setting (default to false for safety)
+            const bypassModeCheckbox = document.getElementById('bypass-mode-checkbox');
+            if (bypassModeCheckbox) {
+                bypassModeCheckbox.checked = settings.bypassMode === true;
+            }
+
+            // Update AgentManager with settings
+            AgentManager.loadState({
+                agent: settings.agent || 'build',
+                autoExecute: settings.autoExecute === true,
+                bypassMode: settings.bypassMode === true
+            });
         } catch (err) {
             console.error('SettingsManager.loadSettings error:', err);
         }
@@ -640,23 +677,22 @@ const SettingsManager = {
             const logLevelEl = document.getElementById('log-level-select');
             const logSensitiveEl = document.getElementById('log-sensitive-checkbox');
 
-            // Get bypass cycling checkbox
-            var bypassCyclingEl = document.getElementById('allow-bypass-cycling-checkbox');
-            var allowBypassCycling = bypassCyclingEl ? bypassCyclingEl.checked : false;
+            // Get new settings checkboxes
+            var autoExecuteEl = document.getElementById('auto-execute-checkbox');
+            var bypassModeEl = document.getElementById('bypass-mode-checkbox');
 
             const settings = {
                 model: modelEl ? modelEl.value : 'claude-sonnet-4-5-20250514',
                 theme: themeEl ? themeEl.value : 'dark',
-                codeExecutionMode: ExecutionModeManager.getCurrentMode(),
                 headlessMode: headlessEl ? headlessEl.checked : true,
                 loggingEnabled: loggingEl ? loggingEl.checked : true,
                 logLevel: logLevelEl ? logLevelEl.value : 'INFO',
                 logSensitiveData: logSensitiveEl ? logSensitiveEl.checked : true,
-                allowBypassModeCycling: allowBypassCycling
+                // New architecture settings
+                agent: AgentManager.getCurrentAgent(),
+                autoExecute: autoExecuteEl ? autoExecuteEl.checked : false,
+                bypassMode: bypassModeEl ? bypassModeEl.checked : false
             };
-
-            // Update ExecutionModeManager with the bypass cycling setting
-            ExecutionModeManager.setBypassCyclingAllowed(allowBypassCycling);
 
             // Apply theme immediately
             setTheme(settings.theme);
@@ -681,9 +717,28 @@ function handleLoadSettings(event) {
         SettingsManager.loadSettings(data);
         AuthManager.loadAuthSettings(data);
 
-        // Load execution mode from settings
-        if (data.codeExecutionMode) {
-            ExecutionModeManager.loadMode(data.codeExecutionMode);
+        // Load agent-based settings (new architecture)
+        if (data.agent !== undefined || data.autoExecute !== undefined || data.bypassMode !== undefined) {
+            AgentManager.loadState({
+                agent: data.agent,
+                autoExecute: data.autoExecute,
+                bypassMode: data.bypassMode
+            });
+        }
+
+        // Map legacy codeExecutionMode to new agent-based settings (backward compatibility)
+        if (data.codeExecutionMode && !data.agent) {
+            var mode = data.codeExecutionMode;
+            var legacySettings = { agent: 'build', autoExecute: false, bypassMode: false };
+            if (mode === 'plan') {
+                legacySettings.agent = 'plan';
+            } else if (mode === 'auto') {
+                legacySettings.autoExecute = true;
+            } else if (mode === 'bypass') {
+                legacySettings.autoExecute = true;
+                legacySettings.bypassMode = true;
+            }
+            AgentManager.loadState(legacySettings);
         }
     } catch (err) {
         console.error('handleLoadSettings error:', err);
@@ -1246,9 +1301,13 @@ function handleStatusBarUpdate(event) {
             }
         }
 
-        // Update execution mode
-        if (data.executionMode !== undefined) {
-            ExecutionModeManager.loadMode(data.executionMode);
+        // Update agent and settings
+        if (data.agent !== undefined || data.autoExecute !== undefined || data.bypassMode !== undefined) {
+            AgentManager.loadState({
+                agent: data.agent,
+                autoExecute: data.autoExecute,
+                bypassMode: data.bypassMode
+            });
         }
     } catch (err) {
         console.error('handleStatusBarUpdate error:', err);
@@ -1310,185 +1369,209 @@ function handleTabStatusUpdate(event) {
 }
 
 // ============================================================================
-// Execution Mode Manager
+// Agent Manager (OpenCode-style Build/Plan toggle)
 // ============================================================================
 
 /**
- * ExecutionModeManager handles the execution mode indicator in the status bar.
- * Mode can be changed by clicking the status bar or pressing backtick key.
+ * AgentManager handles the agent indicator in the status bar.
+ * Agent can be toggled by clicking the status bar or pressing Tab key.
+ *
+ * Two primary agents:
+ * - Build: Full tool access (green)
+ * - Plan: Read-only, planning mode (blue)
+ *
+ * Global settings (managed separately):
+ * - Auto-execute: Automatically approve tools (checkbox in settings)
+ * - Bypass mode: Disable CodeExecutor security (checkbox in settings)
  */
-var ExecutionModeManager = {
-    // Mode configuration: id, label, CSS class, tooltip, color description
-    EXEC_MODES: [
-        { id: 'plan', label: 'Plan', cssClass: 'sb-exec-plan', tooltip: 'Plan mode - interview/planning, no code execution' },
-        { id: 'prompt', label: 'Normal', cssClass: 'sb-exec-prompt', tooltip: 'Normal mode - prompts before each code execution' },
-        { id: 'auto', label: 'Auto', cssClass: 'sb-exec-auto', tooltip: 'Auto mode - executes code automatically (security blocks active)' },
-        { id: 'bypass', label: 'Bypass', cssClass: 'sb-exec-bypass', tooltip: 'DANGEROUS - All safety restrictions disabled!' }
-    ],
+var AgentManager = {
+    // Agent configuration
+    AGENTS: {
+        build: {
+            label: 'Build',
+            cssClass: 'sb-agent-build',
+            tooltip: 'Build agent - full tool access for implementation'
+        },
+        plan: {
+            label: 'Plan',
+            cssClass: 'sb-agent-plan',
+            tooltip: 'Plan agent - read-only mode for planning and analysis'
+        }
+    },
 
-    currentModeIndex: 1,  // Default to 'prompt' (Normal)
-    bypassCyclingAllowed: false,  // Whether bypass mode can be cycled to via status bar/keyboard
+    // Current state
+    currentAgent: 'build',
+    autoExecute: false,
+    bypassMode: false,
 
     /**
-     * Initialize the execution mode manager
+     * Initialize the agent manager
      */
     init: function() {
         try {
-            // Bind click handler to status bar element for cycling
-            var modeEl = document.getElementById('sb-exec-mode');
-            if (modeEl) {
-                modeEl.addEventListener('click', function() {
-                    ExecutionModeManager.cycleMode();
+            // Bind click handler to status bar element for toggling
+            var agentEl = document.getElementById('sb-agent');
+            if (agentEl) {
+                agentEl.addEventListener('click', function() {
+                    AgentManager.toggleAgent();
                 });
             }
         } catch (err) {
-            console.error('ExecutionModeManager.init error:', err);
+            console.error('AgentManager.init error:', err);
         }
     },
 
     /**
-     * Get mode config by ID
+     * Toggle between build and plan agents
      */
-    getModeById: function(modeId) {
-        for (var i = 0; i < this.EXEC_MODES.length; i++) {
-            if (this.EXEC_MODES[i].id === modeId) {
-                return { index: i, config: this.EXEC_MODES[i] };
-            }
-        }
-        return null;
-    },
+    toggleAgent: function() {
+        var newAgent = this.currentAgent === 'build' ? 'plan' : 'build';
+        this.setAgent(newAgent);
 
-    /**
-     * Set whether bypass mode cycling is allowed
-     * @param {boolean} allowed - True if bypass cycling is allowed
-     */
-    setBypassCyclingAllowed: function(allowed) {
-        this.bypassCyclingAllowed = allowed === true;
-    },
-
-    /**
-     * Cycle to the next execution mode on click
-     */
-    cycleMode: function() {
-        var nextIndex = (this.currentModeIndex + 1) % this.EXEC_MODES.length;
-        var nextMode = this.EXEC_MODES[nextIndex];
-
-        // If bypass cycling is not allowed, skip bypass mode
-        if (nextMode.id === 'bypass' && !this.bypassCyclingAllowed) {
-            // Skip to next mode (wraps around to plan)
-            nextIndex = (nextIndex + 1) % this.EXEC_MODES.length;
-            nextMode = this.EXEC_MODES[nextIndex];
-        }
-
-        // If cycling into bypass mode (and allowed), show confirmation dialog
-        if (nextMode.id === 'bypass') {
-            var confirmed = confirm(
-                '⚠️ WARNING: Bypass Mode\n\n' +
-                'This mode removes ALL safety restrictions:\n' +
-                '• No approval prompts before code execution\n' +
-                '• Blocked functions (eval, delete, system) are ALLOWED\n' +
-                '• Destructive operations are permitted\n\n' +
-                'This is DANGEROUS and should only be used when you fully trust the code.\n\n' +
-                'Are you sure you want to enable Bypass mode?'
-            );
-            if (!confirmed) {
-                return;  // User cancelled - stay on current mode
-            }
-        }
-
-        this.setMode(nextMode.id);
-    },
-
-    /**
-     * Set the execution mode by ID
-     * @param {string} modeId - The mode ID ('plan', 'prompt', 'auto', 'bypass')
-     */
-    setMode: function(modeId) {
-        var modeInfo = this.getModeById(modeId);
-        if (!modeInfo) {
-            console.warn('ExecutionModeManager: Unknown mode:', modeId);
-            return;
-        }
-
-        this.currentModeIndex = modeInfo.index;
-        var mode = modeInfo.config;
-
-        // Update status bar display
-        this._updateStatusBar(mode);
-
-        // Show/hide bypass warning banner
-        this._updateBypassBanner(modeId === 'bypass');
-
-        // Send to MATLAB
+        // Send toggle event to MATLAB
         if (window.matlabBridge) {
-            window.matlabBridge.sendEventToMATLAB('setExecutionMode', {
-                mode: modeId,
+            window.matlabBridge.sendEventToMATLAB('toggleAgent', {
+                agent: newAgent,
                 timestamp: Date.now()
             });
         }
     },
 
     /**
-     * Update status bar display for a mode
+     * Set the current agent
+     * @param {string} agentName - 'build' or 'plan'
      */
-    _updateStatusBar: function(mode) {
-        var modeEl = document.getElementById('sb-exec-mode');
-        if (!modeEl) return;
-
-        // Remove all mode classes
-        for (var i = 0; i < this.EXEC_MODES.length; i++) {
-            modeEl.classList.remove(this.EXEC_MODES[i].cssClass);
+    setAgent: function(agentName) {
+        if (!this.AGENTS[agentName]) {
+            console.warn('AgentManager: Unknown agent:', agentName);
+            return;
         }
 
-        // Add new mode class and update text
-        modeEl.classList.add(mode.cssClass);
-        modeEl.textContent = mode.label;
-        modeEl.title = mode.tooltip;
+        this.currentAgent = agentName;
+        this._updateStatusBar();
     },
 
     /**
-     * Show or hide the bypass warning banner
+     * Update status bar display
      */
-    _updateBypassBanner: function(show) {
+    _updateStatusBar: function() {
+        var agentEl = document.getElementById('sb-agent');
+        if (!agentEl) return;
+
+        var agent = this.AGENTS[this.currentAgent];
+
+        // Remove all agent classes
+        agentEl.classList.remove('sb-agent-build', 'sb-agent-plan', 'sb-agent-bypass');
+
+        // Add current agent class
+        agentEl.classList.add(agent.cssClass);
+
+        // If bypass mode is active, show indicator
+        if (this.bypassMode) {
+            agentEl.classList.add('sb-agent-bypass');
+            agentEl.textContent = agent.label + ' ⚠';
+            agentEl.title = agent.tooltip + ' (BYPASS MODE ACTIVE)';
+        } else {
+            agentEl.textContent = agent.label;
+            agentEl.title = agent.tooltip;
+        }
+    },
+
+    /**
+     * Update bypass warning banner
+     */
+    _updateBypassBanner: function() {
         var banner = document.getElementById('bypass-warning');
         if (banner) {
-            banner.style.display = show ? 'block' : 'none';
+            banner.style.display = this.bypassMode ? 'block' : 'none';
         }
     },
 
     /**
-     * Load execution mode from settings (without notifying MATLAB)
-     * @param {string} modeId - The mode ID to load
+     * Set auto-execute mode
+     * @param {boolean} enabled - True to enable auto-execute
      */
-    loadMode: function(modeId) {
-        var modeInfo = this.getModeById(modeId);
-        if (!modeInfo) {
-            // Default to prompt if invalid
-            modeId = 'prompt';
-            modeInfo = this.getModeById(modeId);
+    setAutoExecute: function(enabled) {
+        this.autoExecute = enabled === true;
+    },
+
+    /**
+     * Set bypass mode with confirmation dialog
+     * @param {boolean} enabled - True to enable bypass mode
+     * @param {boolean} skipConfirmation - Skip the confirmation dialog
+     * @returns {boolean} True if mode was changed
+     */
+    setBypassMode: function(enabled, skipConfirmation) {
+        if (enabled && !skipConfirmation) {
+            var confirmed = confirm(
+                '⚠️ WARNING: Bypass Mode\n\n' +
+                'This mode removes ALL safety restrictions:\n' +
+                '• Blocked functions (eval, delete, system) are ALLOWED\n' +
+                '• Destructive operations are permitted\n\n' +
+                'This is DANGEROUS and should only be used when you fully trust the code.\n\n' +
+                'Are you sure you want to enable Bypass mode?'
+            );
+            if (!confirmed) {
+                return false;
+            }
         }
 
-        this.currentModeIndex = modeInfo.index;
-        var mode = modeInfo.config;
+        this.bypassMode = enabled === true;
+        this._updateStatusBar();
+        this._updateBypassBanner();
 
-        // Update display without sending to MATLAB (it's loading from MATLAB)
-        this._updateStatusBar(mode);
-        this._updateBypassBanner(modeId === 'bypass');
+        // Send to MATLAB
+        if (window.matlabBridge) {
+            window.matlabBridge.sendEventToMATLAB('setBypassMode', {
+                enabled: this.bypassMode,
+                timestamp: Date.now()
+            });
+        }
+
+        return true;
     },
 
     /**
-     * Get current mode ID
+     * Load state from settings (without notifying MATLAB)
+     * @param {Object} settings - Settings object with agent, autoExecute, bypassMode
      */
-    getCurrentMode: function() {
-        return this.EXEC_MODES[this.currentModeIndex].id;
+    loadState: function(settings) {
+        if (settings.agent && this.AGENTS[settings.agent]) {
+            this.currentAgent = settings.agent;
+        }
+        if (typeof settings.autoExecute !== 'undefined') {
+            this.autoExecute = settings.autoExecute === true;
+        }
+        if (typeof settings.bypassMode !== 'undefined') {
+            this.bypassMode = settings.bypassMode === true;
+        }
+
+        this._updateStatusBar();
+        this._updateBypassBanner();
     },
 
     /**
-     * Check if bypass mode cycling is allowed
-     * @returns {boolean} True if bypass cycling is enabled in settings
+     * Get current agent name
+     * @returns {string} 'build' or 'plan'
      */
-    isBypassCyclingAllowed: function() {
-        return this.bypassCyclingAllowed === true;
+    getCurrentAgent: function() {
+        return this.currentAgent;
+    },
+
+    /**
+     * Check if auto-execute is enabled
+     * @returns {boolean}
+     */
+    isAutoExecute: function() {
+        return this.autoExecute === true;
+    },
+
+    /**
+     * Check if bypass mode is enabled
+     * @returns {boolean}
+     */
+    isBypassMode: function() {
+        return this.bypassMode === true;
     }
 };
 
@@ -1648,6 +1731,49 @@ function handleInterruptComplete(event) {
 }
 
 /**
+ * Handle agentUpdate event from MATLAB
+ * @param {Event} event - Contains agent data {agent: 'build'|'plan'}
+ */
+function handleAgentUpdate(event) {
+    try {
+        var data = event && event.Data ? event.Data : {};
+        if (data.agent) {
+            AgentManager.setAgent(data.agent);
+        }
+    } catch (err) {
+        console.error('handleAgentUpdate error:', err);
+    }
+}
+
+/**
+ * Handle globalSettingsUpdate event from MATLAB
+ * @param {Event} event - Contains settings {autoExecute: bool, bypassMode: bool}
+ */
+function handleGlobalSettingsUpdate(event) {
+    try {
+        var data = event && event.Data ? event.Data : {};
+
+        if (typeof data.autoExecute !== 'undefined') {
+            AgentManager.setAutoExecute(data.autoExecute);
+            var autoExecCheckbox = document.getElementById('auto-execute-checkbox');
+            if (autoExecCheckbox) {
+                autoExecCheckbox.checked = data.autoExecute === true;
+            }
+        }
+
+        if (typeof data.bypassMode !== 'undefined') {
+            AgentManager.setBypassMode(data.bypassMode, true);  // Skip confirmation
+            var bypassCheckbox = document.getElementById('bypass-mode-checkbox');
+            if (bypassCheckbox) {
+                bypassCheckbox.checked = data.bypassMode === true;
+            }
+        }
+    } catch (err) {
+        console.error('handleGlobalSettingsUpdate error:', err);
+    }
+}
+
+/**
  * Add a visible "Thought interrupted by user" message to the chat
  */
 function addInterruptedMessage() {
@@ -1692,8 +1818,8 @@ function handleExecutionIntentPrompt(event) {
 }
 
 /**
- * Show execution intent modal prompting user to switch modes.
- * Respects the bypass cycling setting to determine which options to show.
+ * Show execution intent modal prompting user to switch to Build agent.
+ * In the new architecture, this prompts to switch from Plan to Build agent.
  * @param {Object} intervention - Intervention data from MATLAB
  */
 function showExecutionIntentPrompt(intervention) {
@@ -1701,40 +1827,18 @@ function showExecutionIntentPrompt(intervention) {
     if (window.chatState.isStreaming) return;
     if (document.getElementById('execution-intent-modal')) return;
 
-    var bypassAllowed = ExecutionModeManager.isBypassCyclingAllowed();
-
-    // Build buttons based on settings
-    var buttonsHtml = '';
-    if (bypassAllowed) {
-        buttonsHtml =
-            '<button class="exec-intent-btn exec-intent-bypass" data-mode="bypass">' +
-            '<span class="exec-intent-icon">⚠️</span>' +
-            '<span class="exec-intent-label">Bypass</span>' +
-            '<span class="exec-intent-desc">No restrictions</span>' +
-            '</button>' +
-            '<button class="exec-intent-btn exec-intent-auto" data-mode="auto">' +
-            '<span class="exec-intent-icon">⚡</span>' +
-            '<span class="exec-intent-label">Auto</span>' +
-            '<span class="exec-intent-desc">Auto-execute code</span>' +
-            '</button>' +
-            '<button class="exec-intent-btn exec-intent-prompt" data-mode="prompt">' +
-            '<span class="exec-intent-icon">✓</span>' +
-            '<span class="exec-intent-label">Normal</span>' +
-            '<span class="exec-intent-desc">Approve each execution</span>' +
-            '</button>';
-    } else {
-        buttonsHtml =
-            '<button class="exec-intent-btn exec-intent-auto" data-mode="auto">' +
-            '<span class="exec-intent-icon">⚡</span>' +
-            '<span class="exec-intent-label">Auto</span>' +
-            '<span class="exec-intent-desc">Auto-execute code</span>' +
-            '</button>' +
-            '<button class="exec-intent-btn exec-intent-prompt" data-mode="prompt">' +
-            '<span class="exec-intent-icon">✓</span>' +
-            '<span class="exec-intent-label">Normal</span>' +
-            '<span class="exec-intent-desc">Approve each execution</span>' +
-            '</button>';
-    }
+    // Build buttons - simplified for new architecture
+    var buttonsHtml =
+        '<button class="exec-intent-btn exec-intent-prompt" data-action="switch-build">' +
+        '<span class="exec-intent-icon">🔧</span>' +
+        '<span class="exec-intent-label">Switch to Build</span>' +
+        '<span class="exec-intent-desc">Full tool access for implementation</span>' +
+        '</button>' +
+        '<button class="exec-intent-btn exec-intent-auto" data-action="switch-build-auto">' +
+        '<span class="exec-intent-icon">⚡</span>' +
+        '<span class="exec-intent-label">Build + Auto-Execute</span>' +
+        '<span class="exec-intent-desc">Switch to Build with auto-execute enabled</span>' +
+        '</button>';
 
     // Create modal
     var modal = document.createElement('div');
@@ -1743,9 +1847,9 @@ function showExecutionIntentPrompt(intervention) {
     modal.innerHTML =
         '<div class="exec-intent-content">' +
         '<div class="exec-intent-header">' +
-        '<span class="exec-intent-title">Switch Execution Mode</span>' +
+        '<span class="exec-intent-title">Switch to Build Agent?</span>' +
         '</div>' +
-        '<p class="exec-intent-message">' + (intervention.message || 'It looks like you want to execute. Which mode?') + '</p>' +
+        '<p class="exec-intent-message">' + (intervention.message || 'You\'re in Plan mode. Switch to Build to execute code?') + '</p>' +
         '<div class="exec-intent-buttons">' +
         buttonsHtml +
         '</div>' +
@@ -1753,27 +1857,43 @@ function showExecutionIntentPrompt(intervention) {
         '</div>';
 
     // Bind button handlers
-    var buttons = modal.querySelectorAll('[data-mode]');
+    var buttons = modal.querySelectorAll('[data-action]');
     for (var i = 0; i < buttons.length; i++) {
         buttons[i].addEventListener('click', function(e) {
-            var mode = e.currentTarget.getAttribute('data-mode');
+            var action = e.currentTarget.getAttribute('data-action');
 
-            // Show bypass warning if selecting bypass mode
-            if (mode === 'bypass') {
-                var confirmed = confirm(
-                    '⚠️ WARNING: Bypass Mode\n\n' +
-                    'This mode removes ALL safety restrictions:\n' +
-                    '• No approval prompts before code execution\n' +
-                    '• Blocked functions (eval, delete, system) are ALLOWED\n' +
-                    '• Destructive operations are permitted\n\n' +
-                    'Are you sure you want to enable Bypass mode?'
-                );
-                if (!confirmed) {
-                    return;  // User cancelled
+            if (action === 'switch-build') {
+                // Switch to Build agent with current auto-execute setting
+                AgentManager.setAgent('build');
+                if (window.matlabBridge) {
+                    window.matlabBridge.sendEventToMATLAB('toggleAgent', {
+                        agent: 'build',
+                        timestamp: Date.now()
+                    });
                 }
+            } else if (action === 'switch-build-auto') {
+                // Switch to Build agent with auto-execute enabled
+                AgentManager.setAgent('build');
+                AgentManager.setAutoExecute(true);
+                if (window.matlabBridge) {
+                    window.matlabBridge.sendEventToMATLAB('toggleAgent', {
+                        agent: 'build',
+                        timestamp: Date.now()
+                    });
+                    window.matlabBridge.sendEventToMATLAB('setAutoExecute', {
+                        enabled: true,
+                        timestamp: Date.now()
+                    });
+                }
+                // Update the settings checkbox
+                var autoExecCheckbox = document.getElementById('auto-execute-checkbox');
+                if (autoExecCheckbox) {
+                    autoExecCheckbox.checked = true;
+                }
+            } else if (action === 'cancel') {
+                // Stay in Plan mode
             }
 
-            ExecutionModeManager.setMode(mode);
             dismissIntervention();
             modal.remove();
         });

@@ -30,8 +30,8 @@
                     <span class="sb-divider">|</span>
                     <span id="sb-auth" class="sb-segment sb-auth">Sub</span>
                     <span class="sb-divider">|</span>
-                    <span id="sb-exec-mode" class="sb-segment sb-exec-mode sb-exec-prompt"
-                          title="Click to cycle execution mode">Normal</span>
+                    <span id="sb-agent" class="sb-segment sb-agent sb-agent-build"
+                          title="Click or press Tab to toggle agent (Build ↔ Plan)">Build</span>
                     <span class="sb-divider">|</span>
                     <span id="sb-tokens" class="sb-segment sb-tokens">0 tokens</span>
                     <span class="sb-divider">|</span>
@@ -113,11 +113,17 @@
                             <option value="light">Light</option>
                         </select>
                     </div>
+                    <!-- Execution Settings -->
+                    <div class="settings-section-header">Execution</div>
+                    <div class="settings-group settings-checkbox-group">
+                        <label><input type="checkbox" id="auto-execute-checkbox"> Auto-execute approved tools</label>
+                        <span class="settings-hint">When enabled, tools are executed without prompting for approval</span>
+                    </div>
                     <!-- Safety Settings -->
                     <div class="settings-section-header">Safety</div>
                     <div class="settings-group settings-checkbox-group">
-                        <label><input type="checkbox" id="allow-bypass-cycling-checkbox"> Allow bypass mode cycling (dangerous)</label>
-                        <span class="settings-hint">When enabled, you can cycle to bypass mode using the status bar or backtick key</span>
+                        <label><input type="checkbox" id="bypass-mode-checkbox"> Enable bypass mode (dangerous)</label>
+                        <span class="settings-hint">⚠️ Disables CodeExecutor security blocks. Only enable when you trust all code!</span>
                     </div>
                     <!-- Display Settings -->
                     <div class="settings-section-header">Display</div>

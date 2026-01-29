@@ -16,8 +16,8 @@ classdef Settings < handle
         % Context Settings
         maxWorkspaceVariables = 50          % Max variables to include
 
-        % Execution Settings
-        codeExecutionMode = 'prompt'        % 'auto', 'prompt', 'disabled'
+        % Execution Settings (legacy - kept for backward compatibility)
+        codeExecutionMode = 'prompt'        % DEPRECATED: Use agent/autoExecute/bypassMode instead
         executionTimeout = 30               % Timeout in seconds
         allowSystemCommands = false         % Allow system(), !, etc.
         allowDestructiveOps = false         % Allow delete, rmdir, etc.
@@ -48,8 +48,13 @@ classdef Settings < handle
         % Authentication Settings
         authMethod = 'subscription'         % 'subscription' or 'api_key'
 
-        % Safety Settings
-        allowBypassModeCycling = false      % Allow cycling to bypass mode via status bar/keyboard
+        % Safety Settings (legacy)
+        allowBypassModeCycling = false      % (Deprecated) Allow cycling to bypass mode via status bar/keyboard
+
+        % New Agent-Based Architecture Settings
+        agent = 'build'                     % Current agent: 'build' or 'plan'
+        autoExecute = false                 % Auto-approve tools (ASK -> ALLOW)
+        bypassMode = false                  % Disable CodeExecutor security blocks (DANGEROUS)
     end
 
     properties (Constant, Access = private)
@@ -105,6 +110,22 @@ classdef Settings < handle
                     value, strjoin(validModes, ', '));
             end
             obj.codeExecutionMode = value;
+        end
+
+        function set.agent(obj, value)
+            %SET.AGENT Validate and set current agent
+            %
+            %   Valid agents:
+            %   - 'build': Full tool access for implementation
+            %   - 'plan': Read-only mode for planning and analysis
+            validAgents = {'build', 'plan'};
+
+            if ~ismember(value, validAgents)
+                error('Settings:InvalidAgent', ...
+                    'Invalid agent: %s. Valid agents are: %s', ...
+                    value, strjoin(validAgents, ', '));
+            end
+            obj.agent = value;
         end
 
         function save(obj)
@@ -163,6 +184,28 @@ classdef Settings < handle
                     % Migrate old model IDs to aliases
                     if isfield(s, 'model')
                         s.model = derivux.config.Settings.migrateModelId(s.model);
+                    end
+
+                    % Migrate old codeExecutionMode to new agent-based settings
+                    if isfield(s, 'codeExecutionMode') && ~isfield(s, 'agent')
+                        mode = s.codeExecutionMode;
+                        if strcmp(mode, 'plan') || strcmp(mode, 'disabled')
+                            s.agent = 'plan';
+                            s.autoExecute = false;
+                            s.bypassMode = false;
+                        elseif strcmp(mode, 'auto')
+                            s.agent = 'build';
+                            s.autoExecute = true;
+                            s.bypassMode = false;
+                        elseif strcmp(mode, 'bypass')
+                            s.agent = 'build';
+                            s.autoExecute = true;
+                            s.bypassMode = true;
+                        else  % 'prompt' or default
+                            s.agent = 'build';
+                            s.autoExecute = false;
+                            s.bypassMode = false;
+                        end
                     end
 
                     % Apply loaded values

@@ -68,7 +68,7 @@ class TabState:
 
 # Import new architecture components
 from .agent import Agent, RoutingResult, create_default_agents
-from .permission import Permission, PermissionState, configure_permissions_for_mode
+from .permission import Permission, PermissionState, GlobalSettings
 from .session import SessionProcessor
 from .config import ConfigLoader, load_config
 from .tool.builtin import register_builtin_tools
@@ -156,9 +156,6 @@ class MatlabBridge:
         self._tab_states: Dict[str, TabState] = {}
         self._active_tab_id: Optional[str] = None
         self._next_tab_number: int = 1
-
-        # Execution mode (now maps to primary agent)
-        self._execution_mode = 'prompt'  # 'plan' or 'prompt/auto/bypass'
 
         # Initialize based on mode
         if self._use_sdk:
@@ -447,16 +444,25 @@ class MatlabBridge:
             try:
                 # Ensure processor is started with correct agent
                 if routing and routing.agent:
+                    # Use processor's actual state, not potentially-stale flag
+                    processor_running = self._processor.is_running if self._processor else False
                     current_agent = self._processor.current_agent if self._processor else None
-                    if not current_agent or current_agent.name != routing.agent.name:
-                        if self._processor_running and self._processor:
+
+                    needs_restart = (
+                        not processor_running or
+                        not current_agent or
+                        current_agent.name != routing.agent.name
+                    )
+
+                    if needs_restart:
+                        # Stop if actually running (processor handles if already stopped)
+                        if processor_running and self._processor:
                             await self._processor.stop()
-                            self._processor_running = False
 
                         await self._processor.start(routing.agent)
                         self._processor_running = True
 
-                elif not self._processor_running:
+                elif not (self._processor.is_running if self._processor else False):
                     agent = Agent.default()
                     if agent and self._processor:
                         await self._processor.start(agent)
@@ -855,50 +861,176 @@ class MatlabBridge:
         """Switch to a different primary agent (build/plan)."""
         return Agent.switch(agent_name)
 
+    def switch_agent(self, agent_name: str) -> bool:
+        """Switch to a specific agent by name.
+
+        This is the preferred method for MATLAB to use when the UI
+        has already determined which agent to switch to. Unlike
+        toggle_primary_agent(), this sets a specific agent rather
+        than cycling.
+
+        Args:
+            agent_name: Name of the agent to switch to ('build' or 'plan')
+
+        Returns:
+            True if switch was successful
+        """
+        success = Agent.switch(agent_name)
+
+        if success:
+            self._logger.info("MatlabBridge", "agent_switched", {
+                "agent_name": agent_name
+            })
+        else:
+            self._logger.warn("MatlabBridge", "agent_switch_failed", {
+                "agent_name": agent_name
+            })
+
+        return success
+
     # =========================================================================
-    # Execution Mode API (Simplified for new architecture)
+    # Agent and Global Settings API (New Architecture)
+    # =========================================================================
+
+    def toggle_primary_agent(self) -> Dict[str, Any]:
+        """Toggle between primary agents (build ↔ plan).
+
+        Returns:
+            Dict with 'agent' (name) and 'description' keys
+        """
+        result = Agent.toggle_primary()
+
+        self._logger.info("MatlabBridge", "primary_agent_toggled", {
+            "new_agent": result.get("agent", ""),
+            "description": result.get("description", "")
+        })
+
+        return result
+
+    def set_auto_execute(self, enabled: bool) -> None:
+        """Set the auto-execute global setting.
+
+        When enabled, tools that require ASK permission are
+        automatically approved.
+
+        Args:
+            enabled: True to enable auto-execute
+        """
+        Permission.set_auto_execute(enabled)
+
+        self._logger.info("MatlabBridge", "auto_execute_set", {
+            "enabled": enabled
+        })
+
+    def set_bypass_mode(self, enabled: bool) -> None:
+        """Set the bypass mode global setting.
+
+        When enabled, CodeExecutor security blocks are disabled.
+        This is dangerous and should only be used when explicitly needed.
+
+        Args:
+            enabled: True to enable bypass mode
+        """
+        Permission.set_bypass_mode(enabled)
+
+        self._logger.info("MatlabBridge", "bypass_mode_set", {
+            "enabled": enabled
+        })
+
+    def get_global_settings(self) -> Dict[str, Any]:
+        """Get the current global settings.
+
+        Returns:
+            Dict with 'auto_execute', 'bypass_mode', and 'current_agent' keys
+        """
+        settings = Permission.get_global_settings()
+        current_agent = Agent.default()
+
+        return {
+            "auto_execute": settings.auto_execute,
+            "bypass_mode": settings.bypass_mode,
+            "current_agent": current_agent.name if current_agent else "build"
+        }
+
+    # =========================================================================
+    # Execution Mode API (Deprecated - kept for backward compatibility)
     # =========================================================================
 
     def set_execution_mode(self, mode: str) -> None:
-        """Set the current code execution mode.
+        """DEPRECATED: Set the current code execution mode.
 
-        In the new architecture, execution modes map to primary agents:
-        - 'plan': Use plan agent (read-only)
-        - 'prompt', 'auto', 'bypass': Use build agent (full access)
+        This method is kept for backward compatibility. New code should use:
+        - toggle_primary_agent() or switch_primary_agent() for agent switching
+        - set_auto_execute(bool) for auto-execute toggle
+        - set_bypass_mode(bool) for bypass toggle
 
-        Permission overrides are applied based on mode.
+        Args:
+            mode: Execution mode ('plan', 'prompt', 'auto', 'bypass')
         """
+        import warnings
+        warnings.warn(
+            "set_execution_mode is deprecated. Use agent switching and "
+            "global settings (set_auto_execute, set_bypass_mode) instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
         valid_modes = ('plan', 'prompt', 'auto', 'bypass')
         if mode not in valid_modes:
             raise ValueError(f"Invalid execution mode: {mode}")
 
-        self._execution_mode = mode
-
-        # Configure permissions for mode
-        configure_permissions_for_mode(mode)
-
-        # Switch primary agent if needed
+        # Map old modes to new architecture
         if mode == 'plan':
             Agent.switch('plan')
-        else:
+            Permission.set_auto_execute(False)
+            Permission.set_bypass_mode(False)
+        elif mode == 'prompt':
             Agent.switch('build')
+            Permission.set_auto_execute(False)
+            Permission.set_bypass_mode(False)
+        elif mode == 'auto':
+            Agent.switch('build')
+            Permission.set_auto_execute(True)
+            Permission.set_bypass_mode(False)
+        elif mode == 'bypass':
+            Agent.switch('build')
+            Permission.set_auto_execute(True)
+            Permission.set_bypass_mode(True)
 
-        self._logger.info("MatlabBridge", "execution_mode_set", {
+        self._logger.info("MatlabBridge", "execution_mode_set_deprecated", {
             "mode": mode,
             "primary_agent": Agent.default().name if Agent.default() else ""
         })
 
     def get_execution_mode(self) -> str:
-        """Get the current code execution mode."""
-        return self._execution_mode
+        """DEPRECATED: Get the current code execution mode.
+
+        This method maps the new architecture back to old mode names
+        for backward compatibility.
+
+        Returns:
+            Mode string ('plan', 'prompt', 'auto', 'bypass')
+        """
+        current_agent = Agent.default()
+        settings = Permission.get_global_settings()
+
+        if current_agent and current_agent.name == 'plan':
+            return 'plan'
+        elif settings.bypass_mode:
+            return 'bypass'
+        elif settings.auto_execute:
+            return 'auto'
+        else:
+            return 'prompt'
 
     def is_plan_mode(self) -> bool:
-        """Check if currently in plan mode."""
-        return self._execution_mode == 'plan'
+        """Check if currently using the plan agent."""
+        current_agent = Agent.default()
+        return current_agent is not None and current_agent.name == 'plan'
 
     def is_bypass_mode(self) -> bool:
-        """Check if currently in bypass mode."""
-        return self._execution_mode == 'bypass'
+        """Check if bypass mode is enabled."""
+        return Permission.is_bypass_mode()
 
     # =========================================================================
     # Tab State API (Unchanged from original)
